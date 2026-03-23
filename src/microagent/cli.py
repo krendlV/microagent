@@ -479,6 +479,95 @@ def evaluate(
 
 
 @app.command()
+def init(
+    data_dir: Path = typer.Option(
+        Path("images"),
+        "--data-dir",
+        help="Directory containing your microscopy images",
+    ),
+    doc: Optional[Path] = typer.Option(
+        None,
+        "--doc",
+        "-d",
+        help="Project document to extract fields from (markdown, text, or PDF). "
+        "Fields found in the document are pre-filled; only missing ones are asked.",
+    ),
+    output: Path = typer.Option(
+        Path("project.yaml"),
+        "--output",
+        "-o",
+        help="Where to save the generated project.yaml",
+    ),
+) -> None:
+    """Run the interactive project setup interview and generate project.yaml.
+
+    If --doc is given, fields are extracted from the document first and only
+    missing information is asked interactively.  During the interview you can
+    also paste a document when prompted.
+    """
+    from microagent.project.knowledge import (
+        create_project_interactive,
+        extract_from_text,
+        load_document,
+        save_project,
+    )
+
+    prefill: dict = {}
+
+    # ── Load document from --doc flag ─────────────────────────────────────────
+    if doc is not None:
+        if not doc.exists():
+            console.print(f"[bold red]Document not found:[/bold red] {doc}")
+            raise typer.Exit(1)
+        with console.status(f"[bold green]Reading {doc} …"):
+            try:
+                text = load_document(doc)
+            except ImportError as exc:
+                console.print(f"[bold red]Error:[/bold red] {exc}")
+                raise typer.Exit(1) from None
+        with console.status("[bold green]Extracting project fields …"):
+            prefill = extract_from_text(text)
+        if prefill:
+            console.print(
+                f"[green]Extracted {len(prefill)} field(s) from {doc.name}.[/green]"
+            )
+        else:
+            console.print("[yellow]No fields could be extracted from the document.[/yellow]")
+
+    # ── Offer paste option when no --doc was given ────────────────────────────
+    else:
+        console.print(
+            "[dim]Tip: if you have a project description document, pass it with "
+            "[bold]--doc path/to/file[/bold] to pre-fill answers.[/dim]"
+        )
+        want_paste = typer.confirm(
+            "Do you want to paste a project document now?", default=False
+        )
+        if want_paste:
+            from microagent.project.knowledge import _read_pasted_text
+
+            text = _read_pasted_text()
+            if text.strip():
+                with console.status("[bold green]Extracting project fields …"):
+                    prefill = extract_from_text(text)
+                if prefill:
+                    console.print(
+                        f"[green]Extracted {len(prefill)} field(s) from pasted text.[/green]"
+                    )
+
+    project = create_project_interactive(
+        data_dir=data_dir if data_dir.exists() else None,
+        prefill=prefill or None,
+    )
+    save_project(project, output)
+    console.print(f"\n[green]✓ Project saved →[/green] {output}")
+    console.print(
+        f"[dim]Recommended model: {project.recommended_model}  "
+        f"params: {project.recommended_params}[/dim]"
+    )
+
+
+@app.command()
 def report(
     project: Optional[Path] = typer.Option(
         None,

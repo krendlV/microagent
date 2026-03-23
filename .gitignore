@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+env/
+venv/
+.venv/
+ENV/
+pip-wheel-metadata/
+*.whl
+
+# uv
+.uv/
+uv.lock
+
+# Distribution
+.cache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Data / microscopy files
+*.tif
+*.tiff
+*.czi
+*.lif
+*.nd2
+*.lsm
+*.oib
+*.oif
+*.ims
+*.h5
+*.hdf5
+*.zarr/
+
+# Logs / outputs
+*.log
+outputs/
+results/

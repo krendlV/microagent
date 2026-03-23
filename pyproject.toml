@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "microagent"
+version = "0.1.0"
+description = "Agentic microscopy image analysis tool"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "numpy",
+    "tifffile",
+    "imageio",
+    "scikit-image",
+    "pillow",
+    "cellpose>=4.0",
+    "matplotlib",
+]
+
+[project.scripts]
+microagent = "microagent.cli:app"
+
+[project.optional-dependencies]
+stardist = ["stardist"]
+# micro-sam is not on PyPI; install via conda: conda install -c conda-forge micro_sam
+sam = []
+bioimage = ["bioimageio.core"]
+tracking = ["optuna>=4.8", "mlflow"]
+mcp = ["mcp>=1.18.0"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "pre-commit",
+]
+all = [
+    "stardist",
+    # micro_sam excluded — not on PyPI (conda-forge only)
+    "bioimageio.core",
+    "optuna>=4.8",
+    "mlflow",
+    "mcp>=1.18.0",
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "pre-commit",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/microagent"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -q"
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+warn_return_any = true

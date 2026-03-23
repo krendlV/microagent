@@ -1,0 +1,52 @@
+services:
+  # MCP server — exposes MicroAgent tools over stdio for LLM integration
+  microagent-mcp:
+    build:
+      context: .
+      target: runtime-cpu   # Change to runtime-gpu for NVIDIA GPU support
+    image: microagent:latest
+    container_name: microagent-mcp
+    stdin_open: true
+    tty: false
+    entrypoint: ["microagent-mcp"]   # FastMCP server entry point
+    volumes:
+      - ./data:/data:ro
+      - mcp-output:/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MPLBACKEND=Agg
+    # Uncomment for GPU support (requires nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Batch worker — runs CLI commands on a data volume
+  microagent-worker:
+    build:
+      context: .
+      target: runtime-cpu   # Change to runtime-gpu for NVIDIA GPU support
+    image: microagent:latest
+    container_name: microagent-worker
+    volumes:
+      - ./data:/data
+      - ./output:/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MPLBACKEND=Agg
+    # Default: run --help; override with `docker compose run microagent-worker segment …`
+    command: ["--help"]
+    # Uncomment for GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  mcp-output:

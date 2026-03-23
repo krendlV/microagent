@@ -867,3 +867,192 @@ def report(
         )
     )
     console.print(f"\n[green]✓ Report saved →[/green] {output}")
+
+
+# ---------------------------------------------------------------------------
+# export
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def export(
+    run: Optional[str] = typer.Option(
+        None,
+        "--run",
+        help="8-character run ID to bundle (from experiments.jsonl)",
+    ),
+    fmt: str = typer.Option(
+        "bundle",
+        "--format",
+        "-f",
+        help="Export format: docker | apptainer | bundle",
+    ),
+    output: Path = typer.Option(
+        Path("export"),
+        "--output",
+        "-o",
+        help="Output directory for generated files",
+    ),
+    dockerfile_only: bool = typer.Option(
+        False,
+        "--dockerfile",
+        help="Generate a Dockerfile from the current environment (no run ID needed)",
+    ),
+    experiments: Path = typer.Option(
+        Path("experiments.jsonl"),
+        "--experiments",
+        help="Path to experiments.jsonl log",
+    ),
+    project: Optional[Path] = typer.Option(
+        None,
+        "--project",
+        help="Path to project.yaml (auto-detected if omitted)",
+    ),
+) -> None:
+    """Export a reproducibility bundle or container definition for a run.
+
+    Examples
+    --------
+    Generate a Dockerfile from the current environment:
+
+        microagent export --dockerfile
+
+    Create a full reproducibility bundle for run ``abc12345``:
+
+        microagent export --run abc12345 --format bundle --output ./export/
+
+    Generate only the Apptainer definition for an HPC cluster:
+
+        microagent export --run abc12345 --format apptainer
+    """
+    from microagent.fair.container import (
+        export_reproducibility_bundle,
+        generate_apptainer_def,
+        generate_dockerfile,
+        generate_environment_lock,
+    )
+    from microagent.fair.provenance import collect_metadata
+
+    output.mkdir(parents=True, exist_ok=True)
+    fmt = fmt.lower()
+
+    # ── --dockerfile shortcut ─────────────────────────────────────────────────
+    if dockerfile_only:
+        with console.status("[bold green]Collecting environment …"):
+            meta = collect_metadata(command="microagent export --dockerfile")
+            dest = output / "Dockerfile"
+            generate_dockerfile(meta, dest)
+        console.print(
+            Panel(
+                f"[bold]Target:[/bold]  {dest}",
+                title="Dockerfile Generated",
+                border_style="green",
+            )
+        )
+        console.print(f"\n[green]✓[/green] {dest}")
+        return
+
+    # ── run-based exports ─────────────────────────────────────────────────────
+    if run is None:
+        console.print(
+            "[bold red]Error:[/bold red] --run <run_id> is required unless "
+            "--dockerfile is specified."
+        )
+        raise typer.Exit(1)
+
+    valid_formats = {"docker", "apptainer", "bundle"}
+    if fmt not in valid_formats:
+        console.print(
+            f"[bold red]Unknown format:[/bold red] {fmt!r}. "
+            f"Choose from: {', '.join(sorted(valid_formats))}"
+        )
+        raise typer.Exit(1)
+
+    with console.status(f"[bold green]Loading run {run} …"):
+        try:
+            if fmt == "bundle":
+                zip_path = export_reproducibility_bundle(
+                    run_id=run,
+                    output_dir=output,
+                    experiments_path=experiments,
+                    project_yaml=project,
+                )
+                console.print(
+                    Panel(
+                        f"[bold]Run:[/bold]  {run}\n"
+                        f"[bold]Bundle:[/bold]  {zip_path}",
+                        title="Reproducibility Bundle",
+                        border_style="green",
+                    )
+                )
+                console.print(f"\n[green]✓ Bundle saved →[/green] {zip_path}")
+
+            else:
+                # Load provenance from the run record
+                import json as _json
+
+                experiments_path = Path(experiments)
+                if not experiments_path.exists():
+                    console.print(
+                        f"[bold red]Experiments log not found:[/bold red] {experiments_path}"
+                    )
+                    raise typer.Exit(1)
+
+                run_record: dict | None = None
+                with experiments_path.open(encoding="utf-8") as fh:
+                    for _line in fh:
+                        _line = _line.strip()
+                        if not _line:
+                            continue
+                        rec = _json.loads(_line)
+                        if rec.get("run_id") == run:
+                            run_record = rec
+                            break
+
+                if run_record is None:
+                    console.print(
+                        f"[bold red]Run not found:[/bold red] '{run}' in {experiments_path}"
+                    )
+                    raise typer.Exit(1)
+
+                from microagent.fair.provenance import RunMetadata
+
+                m = run_record.get("metadata", {})
+                provenance = RunMetadata(
+                    microagent_version=m.get("microagent_version", "unknown"),
+                    python_version=m.get("python_version", "unknown"),
+                    platform=m.get("platform", "unknown"),
+                    cellpose_version=m.get("cellpose_version"),
+                    stardist_version=m.get("stardist_version"),
+                    torch_version=m.get("torch_version", "unknown"),
+                    numpy_version=m.get("numpy_version", "unknown"),
+                    cuda_version=m.get("cuda_version"),
+                    gpu_name=m.get("gpu_name"),
+                    gpu_vram_mb=m.get("gpu_vram_mb"),
+                    cpu_model=m.get("cpu_model", "unknown"),
+                    ram_total_gb=m.get("ram_total_gb", 0.0),
+                    data_hash=m.get("data_hash", ""),
+                    parameters=m.get("parameters", {}),
+                    random_seed=m.get("random_seed", 0),
+                    timestamp_utc=m.get("timestamp_utc", ""),
+                    wall_clock_seconds=m.get("wall_clock_seconds", 0.0),
+                    git_commit=m.get("git_commit"),
+                    git_dirty=m.get("git_dirty"),
+                    command=m.get("command", ""),
+                )
+
+                if fmt == "docker":
+                    dest = output / "Dockerfile"
+                    generate_dockerfile(provenance, dest)
+                    console.print(f"\n[green]✓ Dockerfile →[/green] {dest}")
+                else:  # apptainer
+                    dest = output / "microagent.def"
+                    generate_apptainer_def(provenance, dest)
+                    console.print(f"\n[green]✓ Apptainer def →[/green] {dest}")
+
+        except (KeyError, FileNotFoundError) as exc:
+            console.print(f"[bold red]Error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+        except Exception as exc:
+            console.print(f"[bold red]Export failed:[/bold red] {exc}")
+            raise typer.Exit(1) from None

@@ -68,6 +68,7 @@ testpaths = ["tests"]
 addopts = "--tb=short -q"
 markers = [
     "slow: marks tests that require GPU or model downloads (deselect with '-m not slow')",
+    "integration: end-to-end pipeline tests (run with '-m integration')",
 ]
 
 [tool.mypy]

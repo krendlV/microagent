@@ -181,7 +181,7 @@ def load_report_data(
     -------
     ReportData
     """
-    from microagent.fair.provenance import RunMetadata
+    from microagent.fair.provenance import collect_metadata
 
     def _load(path: Path | None) -> dict | None:
         if path and path.exists():
@@ -223,7 +223,7 @@ def load_report_data(
         segmentation=seg_dict,
         evaluation=_load(evaluation_json),
         optimization=opt_dict,
-        provenance=RunMetadata.collect(command=command, seed=seed),
+        provenance=collect_metadata(command=command, random_seed=seed or 0),
         overlay_images=overlay_images,
         plots=plot_paths,
     )

@@ -568,6 +568,194 @@ def init(
 
 
 @app.command()
+def demo(
+    output: Path = typer.Option(
+        Path("demo_output"),
+        "--output",
+        "-o",
+        help="Directory to write all demo outputs into",
+    ),
+    n_images: int = typer.Option(
+        10,
+        "--n-images",
+        help="Number of synthetic images to generate",
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="Skip opening the report in a browser when done",
+    ),
+) -> None:
+    """Generate synthetic data and run the full pipeline as a demo.
+
+    Produces a self-contained HTML report without any real data or GPU.
+    Target runtime: < 60 seconds on a machine with GPU, longer on CPU-only.
+    """
+    from microagent.core.evaluate import evaluate_masks
+    from microagent.core.inspect import inspect_directory
+    from microagent.core.segment import run_segmentation
+    from microagent.demo.synthetic import generate_synthetic_dataset
+    from microagent.viz.overlays import create_overlay, save_overlay_montage
+    from microagent.viz.plots import plot_metrics_summary, plot_object_size_distribution
+    from microagent.viz.report import generate_report, load_report_data
+
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+
+    # ── 1. Generate synthetic dataset ─────────────────────────────────────
+    console.print(Panel(
+        "[bold]MicroAgent Demo[/bold]\n"
+        f"Generating {n_images} synthetic fluorescence images → {output}",
+        border_style="blue",
+    ))
+    with console.status("[bold green]Generating synthetic microscopy data …"):
+        image_dir, gt_dir = generate_synthetic_dataset(
+            output,
+            n_images=n_images,
+            image_size=(512, 512),
+            n_objects_range=(5, 25),
+            noise_level=0.08,
+            seed=42,
+        )
+    console.print(f"[green]✓ {n_images} images → {image_dir}[/green]")
+
+    project_yaml = output / "project.yaml"
+
+    # ── 2. Inspect ────────────────────────────────────────────────────────
+    with console.status("[bold green]Running QC inspection …"):
+        insp = inspect_directory(image_dir)
+    insp_json = output / "inspection.json"
+    insp.save_json(insp_json)
+    console.print(
+        f"[green]✓ Inspect:[/green] {insp.file_count} images, "
+        f"{insp.channel_count} channels, {len(insp.issues)} QC issues"
+    )
+
+    # ── 3. Segment ────────────────────────────────────────────────────────
+    masks_dir = output / "masks"
+    masks_dir.mkdir(exist_ok=True)
+    with console.status("[bold green]Segmenting nuclei with CellPose …"):
+        try:
+            seg = run_segmentation(
+                image_dir=image_dir,
+                output_dir=masks_dir,
+                model="cellpose",
+                project_path=project_yaml if project_yaml.exists() else None,
+            )
+        except (ImportError, RuntimeError) as exc:
+            console.print(f"[bold red]Segmentation error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+    seg_json = output / "segmentation.json"
+    seg.save_json(seg_json)
+    total_cells = sum(s.n_labels for s in seg.per_image_stats)
+    console.print(
+        f"[green]✓ Segment:[/green] {len(seg.mask_paths)} masks, "
+        f"{total_cells} total objects detected ({seg.elapsed_seconds:.1f}s)"
+    )
+
+    # ── 4. Generate overlay montage ───────────────────────────────────────
+    overlays_dir = output / "overlays"
+    overlays_dir.mkdir(exist_ok=True)
+    try:
+        import tifffile
+
+        imgs, masks_list = [], []
+        for mask_path_str in seg.mask_paths[:9]:
+            mask_path = Path(mask_path_str)
+            img_name = mask_path.stem.replace("_mask", "") + ".tif"
+            img_path = image_dir / img_name
+            if img_path.exists():
+                img_arr = tifffile.imread(str(img_path))
+                mask_arr = tifffile.imread(str(mask_path))
+                imgs.append(img_arr)
+                masks_list.append(mask_arr)
+
+        if imgs:
+            montage_path = overlays_dir / "overlay_montage.png"
+            save_overlay_montage(imgs, masks_list, montage_path, ncols=min(3, len(imgs)))
+            console.print(f"[green]✓ Overlays → {montage_path}[/green]")
+    except Exception as exc:
+        console.print(f"[yellow]Overlay generation skipped: {exc}[/yellow]")
+
+    # ── 5. Evaluate ───────────────────────────────────────────────────────
+    with console.status("[bold green]Evaluating segmentation quality …"):
+        ev = evaluate_masks(
+            pred_dir=masks_dir,
+            gt_dir=gt_dir,
+            thresholds=[0.5, 0.75, 0.9],
+            force_fallback=True,
+        )
+    ev_json = output / "metrics.json"
+    ev.save_json(ev_json)
+    f1_05 = next(
+        (tm.f1 for tm in ev.summary.per_threshold if abs(tm.threshold - 0.5) < 1e-9),
+        0.0,
+    )
+    console.print(
+        f"[green]✓ Evaluate:[/green] F1@0.5={f1_05:.3f}  "
+        f"mAP={ev.summary.map:.3f}  PQ={ev.summary.panoptic_quality:.3f}"
+    )
+
+    # ── 6. Generate metric plots ──────────────────────────────────────────
+    plots_dir = output / "plots"
+    plots_dir.mkdir(exist_ok=True)
+    try:
+        plot_metrics_summary(ev, plots_dir / "metrics_summary.png")
+        # Aggregate all masks for size distribution
+        import tifffile as _tf
+        import numpy as np
+
+        combined = np.concatenate([
+            _tf.imread(str(p)).ravel() for p in masks_dir.glob("*_mask.tif")
+        ])
+        # Re-label from combined to get proper regionprops
+        from skimage import measure as _measure
+        combined_2d = _tf.imread(str(next(masks_dir.glob("*_mask.tif"))))
+        plot_object_size_distribution(combined_2d, plots_dir / "object_sizes.png")
+        console.print(f"[green]✓ Plots → {plots_dir}[/green]")
+    except Exception as exc:
+        console.print(f"[yellow]Plot generation skipped: {exc}[/yellow]")
+
+    # ── 7. Generate HTML report ───────────────────────────────────────────
+    report_path = output / "report.html"
+    with console.status("[bold green]Building HTML report …"):
+        try:
+            data = load_report_data(
+                inspection_json=insp_json,
+                segmentation_json=seg_json,
+                evaluation_json=ev_json,
+                project_yaml=project_yaml if project_yaml.exists() else None,
+                overlay_dir=overlays_dir if overlays_dir.is_dir() else None,
+                plots_dir=plots_dir if plots_dir.is_dir() else None,
+                command="microagent demo",
+            )
+            generate_report(data, report_path)
+        except Exception as exc:
+            console.print(f"[bold red]Report generation failed:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+
+    console.print(
+        Panel(
+            f"[bold green]Demo complete![/bold green]\n\n"
+            f"  Images:    {image_dir}\n"
+            f"  Masks:     {masks_dir}\n"
+            f"  Metrics:   {ev_json}\n"
+            f"  Report:    {report_path}\n\n"
+            f"  F1@0.5 = {f1_05:.3f}",
+            title="Summary",
+            border_style="green",
+        )
+    )
+
+    if not no_browser:
+        import webbrowser
+
+        url = report_path.resolve().as_uri()
+        console.print(f"[dim]Opening {url} …[/dim]")
+        webbrowser.open(url)
+
+
+@app.command()
 def report(
     project: Optional[Path] = typer.Option(
         None,

@@ -273,6 +273,92 @@ def train(
 
 
 @app.command()
+def optimize(
+    image_dir: Path = typer.Argument(..., help="Directory containing images"),
+    gt_dir: Path = typer.Argument(..., help="Directory containing ground-truth masks"),
+    trials: int = typer.Option(20, "--trials", "-n", help="Number of Optuna trials"),
+    metric: str = typer.Option("f1", "--metric", help="Metric to optimise: f1, map, pq, precision, recall"),
+    model: str = typer.Option("auto", "--model", "-m", help="Backend: auto, cellpose, or stardist"),
+    iou: float = typer.Option(0.5, "--iou", help="IoU threshold for F1/precision/recall"),
+    seed: int = typer.Option(42, "--seed", help="Random seed"),
+    project: Path | None = typer.Option(None, "--project", "-p", help="Path to project.yaml"),
+) -> None:
+    """Optimise segmentation hyperparameters with Optuna TPE search."""
+    from rich.live import Live
+    from rich.table import Table
+
+    from microagent.core.optimize import OptimizeConfig, run_optimization
+
+    config = OptimizeConfig(
+        image_dir=image_dir,
+        gt_dir=gt_dir,
+        model=model,
+        n_trials=trials,
+        metric=metric,
+        iou_threshold=iou,
+        seed=seed,
+        project_path=project,
+    )
+
+    # ── Live trial table ──────────────────────────────────────────────────────
+    def _make_table(records: list) -> Table:
+        tbl = Table(title="Optuna Trials", box=SIMPLE_HEAD, show_lines=False)
+        tbl.add_column("Trial", style="dim", width=6, justify="right")
+        tbl.add_column("Params", style="cyan")
+        tbl.add_column(metric.upper(), justify="right")
+        tbl.add_column("Best so far", justify="right")
+        best_so_far = 0.0
+        for rec in records:
+            if rec.value > best_so_far:
+                best_so_far = rec.value
+            param_str = "  ".join(f"{k}={v:.3g}" for k, v in rec.params.items())
+            score_style = "green" if rec.value >= 0.7 else ("yellow" if rec.value >= 0.4 else "red")
+            tbl.add_row(
+                str(rec.number),
+                param_str,
+                f"[{score_style}]{rec.value:.4f}[/{score_style}]",
+                f"{best_so_far:.4f}",
+            )
+        return tbl
+
+    records: list = []
+
+    with Live(console=console, refresh_per_second=4) as live:
+        live.update(_make_table(records))
+
+        def _on_trial(record) -> None:
+            records.append(record)
+            live.update(_make_table(records))
+
+        try:
+            result = run_optimization(config, on_trial_complete=_on_trial)
+        except ImportError as exc:
+            console.print(f"[bold red]Import error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+        except (FileNotFoundError, RuntimeError) as exc:
+            console.print(f"[bold red]Error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+
+    # ── Final summary ─────────────────────────────────────────────────────────
+    delta = result.improvement
+    delta_colour = "green" if delta > 1e-6 else ("red" if delta < -1e-6 else "dim")
+    param_lines = "\n".join(
+        f"  [bold]{k}:[/bold] {v:.4g}" for k, v in result.best_params.items()
+    )
+    summary = (
+        f"{param_lines}\n\n"
+        f"[bold]Baseline {metric.upper()}:[/bold]  {result.baseline_value:.4f}\n"
+        f"[bold]Best {metric.upper()}:[/bold]      {result.best_value:.4f}\n"
+        f"[bold]Improvement:[/bold]    [{delta_colour}]{delta:+.4f}[/{delta_colour}]"
+    )
+    console.print(
+        Panel(summary, title="Best Hyperparameters", border_style="green")
+    )
+    if result.study_path:
+        console.print(f"[dim]Study saved → {result.study_path}[/dim]")
+
+
+@app.command()
 def evaluate(
     pred_dir: Path = typer.Argument(..., help="Directory containing predicted mask TIFFs"),
     gt_dir: Path = typer.Argument(..., help="Directory containing ground-truth mask TIFFs"),

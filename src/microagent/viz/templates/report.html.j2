@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MicroAgent Report — {{ project.get('name', 'Untitled Project') }}</title>
+  <style>
+    /* ── Reset & Base ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 15px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      line-height: 1.6;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #2B5F8A 0%, #1a3f60 100%);
+      color: #fff;
+      padding: 2.5rem 2rem 2rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; }
+    header .subtitle {
+      margin-top: 0.35rem;
+      font-size: 0.95rem;
+      opacity: 0.82;
+    }
+    header .meta {
+      margin-top: 0.8rem;
+      font-size: 0.82rem;
+      opacity: 0.65;
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    /* ── Section ────────────────────────────────────────────────────── */
+    section {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    }
+    section h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #2B5F8A;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 0.55rem;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Stat grid ──────────────────────────────────────────────────── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .stat-card {
+      background: #f0f4f8;
+      border-radius: 6px;
+      padding: 0.85rem 1rem;
+    }
+    .stat-card .label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: .06em; }
+    .stat-card .value { font-size: 1.4rem; font-weight: 700; color: #2B5F8A; margin-top: 0.1rem; }
+
+    /* ── Tables ─────────────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; margin-top: 0.75rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    thead th {
+      background: #2B5F8A;
+      color: #fff;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:hover { background: #eef4fb; }
+    tbody td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+    tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ── Metric colouring ───────────────────────────────────────────── */
+    .good  { color: #16a34a; font-weight: 600; }
+    .ok    { color: #ca8a04; font-weight: 600; }
+    .bad   { color: #dc2626; font-weight: 600; }
+
+    /* ── Warning / info blocks ──────────────────────────────────────── */
+    .warnings { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; margin-top: 0.75rem; }
+    .warnings li { list-style: none; font-size: 0.875rem; color: #92400e; padding: 0.15rem 0; }
+    .warnings li::before { content: "⚠ "; }
+
+    /* ── Gallery ────────────────────────────────────────────────────── */
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 0.75rem;
+    }
+    .gallery-item { border-radius: 6px; overflow: hidden; border: 1px solid #e2e8f0; }
+    .gallery-item a { display: block; }
+    .gallery-item img { width: 100%; height: 160px; object-fit: cover; display: block; }
+    .gallery-item .caption {
+      font-size: 0.75rem;
+      color: #64748b;
+      padding: 0.3rem 0.5rem;
+      background: #f8fafc;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    /* ── Plots ──────────────────────────────────────────────────────── */
+    .plots { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-top: 0.75rem; }
+    .plot-item { flex: 1 1 420px; }
+    .plot-item img { width: 100%; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .plot-item .caption { font-size: 0.78rem; color: #64748b; margin-top: 0.35rem; text-align: center; }
+
+    /* ── KV list (provenance) ───────────────────────────────────────── */
+    .kv-list { font-size: 0.85rem; column-count: 2; column-gap: 2rem; }
+    @media (max-width: 680px) { .kv-list { column-count: 1; } }
+    .kv-row { display: flex; gap: 0.5rem; padding: 0.2rem 0; break-inside: avoid; }
+    .kv-key { color: #475569; min-width: 160px; flex-shrink: 0; }
+    .kv-val { color: #1a1a2e; font-family: "SFMono-Regular", Consolas, monospace; word-break: break-all; }
+
+    /* ── Param chips ────────────────────────────────────────────────── */
+    .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    .chip {
+      background: #dbeafe;
+      color: #1e40af;
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
+    footer {
+      margin-top: 2.5rem;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #94a3b8;
+    }
+
+    /* ── Print ──────────────────────────────────────────────────────── */
+    @media print {
+      body { background: #fff; }
+      header { background: #2B5F8A !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      section { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
+      .gallery-item img, .plot-item img { max-height: 200px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Header                                                                  -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="page">
+    <h1>{{ project.get('name', 'MicroAgent Report') }}</h1>
+    {% if project.get('description') %}
+    <p class="subtitle">{{ project.description }}</p>
+    {% endif %}
+    <div class="meta">
+      <span>Generated {{ provenance.get('timestamp', '') | replace('T', ' ') | truncate(19, True, '') }} UTC</span>
+      <span>MicroAgent v{{ provenance.get('microagent_version', '?') }}</span>
+      {% if provenance.get('hostname') %}<span>Host: {{ provenance.hostname }}</span>{% endif %}
+      {% if provenance.get('command') %}<span>Command: {{ provenance.command }}</span>{% endif %}
+    </div>
+  </div>
+</header>
+
+<div class="page">
+
+{% if project %}
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Project Info                                                             -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Project</h2>
+  <div class="kv-list">
+    {% for k, v in project.items() %}
+    <div class="kv-row">
+      <span class="kv-key">{{ k }}</span>
+      <span class="kv-val">{{ v }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if inspection %}
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Data Summary                                                             -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Data Summary</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="label">Images</div>
+      <div class="value">{{ inspection.file_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Channels</div>
+      <div class="value">{{ inspection.channel_count }}</div>
+    </div>
+    {% if inspection.dtypes %}
+    <div class="stat-card">
+      <div class="label">Bit Depth</div>
+      <div class="value">{{ inspection.dtypes | join(', ') }}</div>
+    </div>
+    {% endif %}
+    {% if inspection.dimensions %}
+    <div class="stat-card">
+      <div class="label">Dimensions</div>
+      <div class="value" style="font-size:1rem; padding-top:.2rem;">
+        {% for d in inspection.dimensions %}{{ d | join('×') }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if inspection.intensity_stats %}
+  <h3 style="font-size:.9rem; color:#475569; margin:.75rem 0 .4rem;">Intensity Statistics</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Channel</th><th>Min</th><th>Max</th><th>Mean</th><th>Std Dev</th></tr></thead>
+      <tbody>
+        {% for cs in inspection.intensity_stats %}
+        <tr>
+          <td>ch{{ cs.channel }}</td>
+          <td class="num">{{ "%.1f" | format(cs.min) }}</td>
+          <td class="num">{{ "%.1f" | format(cs.max) }}</td>
+          <td class="num">{{ "%.1f" | format(cs.mean) }}</td>
+          <td class="num">{{ "%.1f" | format(cs.std) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if inspection.issues %}
+  <ul class="warnings">
+    {% for issue in inspection.issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if segmentation %}
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Segmentation Results                                                     -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Segmentation Results</h2>
+  {% set mi = segmentation.model_info %}
+  {% if mi %}
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="label">Backend</div>
+      <div class="value" style="font-size:1.1rem;">{{ mi.get('backend', '—') }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Model</div>
+      <div class="value" style="font-size:1.1rem;">{{ mi.get('model_name', '—') }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Images</div>
+      <div class="value">{{ segmentation.per_image_stats | length }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Total time (s)</div>
+      <div class="value">{{ "%.1f" | format(segmentation.elapsed_seconds) }}</div>
+    </div>
+  </div>
+  {% if segmentation.parameters %}
+  <div class="chips">
+    {% for k, v in segmentation.parameters.items() %}
+    <span class="chip">{{ k }}: {{ v }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
+
+  {% if segmentation.per_image_stats %}
+  <div class="table-wrap" style="margin-top:1rem;">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Filename</th><th>Cells found</th><th>Time (s)</th></tr>
+      </thead>
+      <tbody>
+        {% for s in segmentation.per_image_stats %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td>{{ s.filename }}</td>
+          <td class="num">{{ s.n_labels }}</td>
+          <td class="num">{{ "%.2f" | format(s.elapsed_seconds) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if overlay_uris %}
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Overlay Gallery                                                          -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Overlay Gallery</h2>
+  <div class="gallery">
+    {% for img in overlay_uris %}
+    <div class="gallery-item">
+      <a href="{{ img.uri }}" target="_blank" title="Click for full size: {{ img.name }}">
+        <img src="{{ img.uri }}" alt="{{ img.name }}" loading="lazy">
+      </a>
+      <div class="caption">{{ img.name }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if evaluation %}
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Metrics Dashboard                                                        -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Metrics Dashboard</h2>
+  {% set s = evaluation.summary %}
+  {% if s %}
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="label">Images evaluated</div>
+      <div class="value">{{ s.n_images }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Mean GT count</div>
+      <div class="value">{{ "%.1f" | format(s.mean_gt_count) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Mean pred count</div>
+      <div class="value">{{ "%.1f" | format(s.mean_pred_count) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">mAP</div>
+      <div class="value">{{ "%.3f" | format(s.map) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Panoptic Quality</div>
+      <div class="value">{{ "%.3f" | format(s.panoptic_quality) }}</div>
+    </div>
+    {% for tm in s.per_threshold %}
+    <div class="stat-card">
+      <div class="label">F1 @ IoU {{ tm.threshold }}</div>
+      <div class="value">{{ "%.3f" | format(tm.f1) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if evaluation.per_image %}
+  {% set thresholds = evaluation.per_image[0].per_threshold %}
+  <h3 style="font-size:.9rem; color:#475569; margin:.75rem 0 .4rem;">Per-Image Breakdown</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Filename</th><th>GT</th><th>Pred</th>
+          {% for tm in thresholds %}<th>F1@{{ tm.threshold }}</th>{% endfor %}
+          <th>mAP</th><th>PQ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for im in evaluation.per_image %}
+        {% set f1_primary = im.per_threshold[0].f1 if im.per_threshold else 0 %}
+        <tr>
+          <td>{{ im.filename }}</td>
+          <td class="num">{{ im.gt_count }}</td>
+          <td class="num">{{ im.pred_count }}</td>
+          {% for tm in im.per_threshold %}
+          <td class="num {% if tm.f1 >= 0.8 %}good{% elif tm.f1 >= 0.5 %}ok{% else %}bad{% endif %}">
+            {{ "%.3f" | format(tm.f1) }}
+          </td>
+          {% endfor %}
+          <td class="num {% if im.map >= 0.8 %}good{% elif im.map >= 0.5 %}ok{% else %}bad{% endif %}">
+            {{ "%.3f" | format(im.map) }}
+          </td>
+          <td class="num {% if im.panoptic_quality >= 0.8 %}good{% elif im.panoptic_quality >= 0.5 %}ok{% else %}bad{% endif %}">
+            {{ "%.3f" | format(im.panoptic_quality) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if evaluation.worst_images %}
+  <ul class="warnings" style="margin-top:.75rem;">
+    {% for f in evaluation.worst_images %}
+    <li>Worst image: {{ f }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if plot_uris %}
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Metric Plots                                                             -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Metric Plots</h2>
+  <div class="plots">
+    {% for p in plot_uris %}
+    <div class="plot-item">
+      <img src="{{ p.uri }}" alt="{{ p.name }}">
+      <div class="caption">{{ p.name }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if optimization %}
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Optimization Summary                                                     -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Optimization Summary</h2>
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="label">Best score</div>
+      <div class="value">{{ "%.4f" | format(optimization.best_value) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Baseline score</div>
+      <div class="value">{{ "%.4f" | format(optimization.baseline_value) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Improvement</div>
+      <div class="value {% if optimization.improvement > 0 %}good{% elif optimization.improvement < 0 %}bad{% endif %}">
+        {{ "%+.4f" | format(optimization.improvement) }}
+      </div>
+    </div>
+    {% if optimization.trials %}
+    <div class="stat-card">
+      <div class="label">Trials run</div>
+      <div class="value">{{ optimization.trials | length }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if optimization.best_params %}
+  <h3 style="font-size:.9rem; color:#475569; margin:.75rem 0 .4rem;">Best Parameters</h3>
+  <div class="chips">
+    {% for k, v in optimization.best_params.items() %}
+    <span class="chip">{{ k }}: {{ v if v is string else "%.4g" | format(v) }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if optimization.trials %}
+  <h3 style="font-size:.9rem; color:#475569; margin:1rem 0 .4rem;">Trial History</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Trial</th><th>Parameters</th><th>Score</th></tr></thead>
+      <tbody>
+        {% for t in optimization.trials %}
+        <tr>
+          <td class="num">{{ t.number }}</td>
+          <td>
+            {% for k, v in t.params.items() %}
+            <span class="chip" style="background:#f1f5f9; color:#334155;">{{ k }}: {{ v if v is string else "%.4g" | format(v) }}</span>
+            {% endfor %}
+          </td>
+          <td class="num {% if t.value >= 0.8 %}good{% elif t.value >= 0.5 %}ok{% else %}bad{% endif %}">
+            {{ "%.4f" | format(t.value) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Reproducibility (Provenance)                                             -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<section>
+  <h2>Reproducibility</h2>
+  <div class="kv-list">
+    <div class="kv-row"><span class="kv-key">Timestamp (UTC)</span><span class="kv-val">{{ provenance.get('timestamp', '—') }}</span></div>
+    <div class="kv-row"><span class="kv-key">MicroAgent version</span><span class="kv-val">{{ provenance.get('microagent_version', '—') }}</span></div>
+    <div class="kv-row"><span class="kv-key">Python version</span><span class="kv-val">{{ provenance.get('python_version', '—') }}</span></div>
+    <div class="kv-row"><span class="kv-key">Platform</span><span class="kv-val">{{ provenance.get('platform', '—') }}</span></div>
+    <div class="kv-row"><span class="kv-key">CPU count</span><span class="kv-val">{{ provenance.get('cpu_count', '—') }}</span></div>
+    <div class="kv-row"><span class="kv-key">Hostname</span><span class="kv-val">{{ provenance.get('hostname', '—') }}</span></div>
+    <div class="kv-row"><span class="kv-key">Command</span><span class="kv-val">{{ provenance.get('command', '—') }}</span></div>
+    {% if provenance.get('seed') is not none %}
+    <div class="kv-row"><span class="kv-key">Random seed</span><span class="kv-val">{{ provenance.seed }}</span></div>
+    {% endif %}
+  </div>
+
+  {% if provenance.get('software_versions') %}
+  <h3 style="font-size:.9rem; color:#475569; margin:.9rem 0 .4rem;">Software Versions</h3>
+  <div class="kv-list">
+    {% for pkg, ver in provenance.software_versions.items() %}
+    <div class="kv-row"><span class="kv-key">{{ pkg }}</span><span class="kv-val">{{ ver }}</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+</div><!-- /.page -->
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Footer                                                                   -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<footer>
+  <p>Generated by MicroAgent v{{ provenance.get('microagent_version', '?') }} &nbsp;·&nbsp; {{ provenance.get('timestamp', '') | replace('T', ' ') | truncate(19, True, '') }} UTC</p>
+</footer>
+
+</body>
+</html>

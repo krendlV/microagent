@@ -19,6 +19,7 @@ dependencies = [
     "pillow",
     "cellpose>=4.0",
     "matplotlib",
+    "jinja2",
 ]
 
 [project.scripts]

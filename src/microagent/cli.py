@@ -476,3 +476,117 @@ def evaluate(
     if output:
         result.save_json(output)
         console.print(f"\n[green]Metrics saved →[/green] {output}")
+
+
+@app.command()
+def report(
+    project: Optional[Path] = typer.Option(
+        None,
+        "--project",
+        "-p",
+        help="Path to project.yaml",
+    ),
+    output: Path = typer.Option(
+        Path("report.html"),
+        "--output",
+        "-o",
+        help="Destination HTML file",
+    ),
+    inspection_json: Optional[Path] = typer.Option(
+        None,
+        "--inspection",
+        help="Path to inspection JSON (auto-detected as inspection.json if omitted)",
+    ),
+    segmentation_json: Optional[Path] = typer.Option(
+        None,
+        "--segmentation",
+        help="Path to segmentation JSON (auto-detected as segmentation.json if omitted)",
+    ),
+    evaluation_json: Optional[Path] = typer.Option(
+        None,
+        "--evaluation",
+        help="Path to evaluation/metrics JSON (auto-detected as metrics.json if omitted)",
+    ),
+    optimization_json: Optional[Path] = typer.Option(
+        None,
+        "--optimization",
+        help="Path to optimization JSON (auto-detected as optimization.json if omitted)",
+    ),
+    overlay_dir: Optional[Path] = typer.Option(
+        None,
+        "--overlays",
+        help="Directory of overlay PNGs (auto-detected as overlays/ if omitted)",
+    ),
+    plots_dir: Optional[Path] = typer.Option(
+        None,
+        "--plots",
+        help="Directory of metric plot PNGs (auto-detected as plots/ if omitted)",
+    ),
+) -> None:
+    """Generate a self-contained HTML report from pipeline results."""
+    from microagent.viz.report import generate_report, load_report_data
+
+    # ── Auto-discover result files if not provided ────────────────────────────
+    def _auto(explicit: Optional[Path], *candidates: str) -> Optional[Path]:
+        if explicit:
+            return explicit
+        for name in candidates:
+            p = Path(name)
+            if p.exists():
+                return p
+        return None
+
+    resolved_inspection = _auto(inspection_json, "inspection.json")
+    resolved_segmentation = _auto(segmentation_json, "segmentation.json")
+    resolved_evaluation = _auto(evaluation_json, "metrics.json", "evaluation.json")
+    resolved_optimization = _auto(optimization_json, "optimization.json")
+    resolved_overlays = _auto(overlay_dir, "overlays", "masks")
+    resolved_plots = _auto(plots_dir, "plots")
+
+    found: list[str] = []
+    if resolved_inspection:
+        found.append(f"inspection ({resolved_inspection.name})")
+    if resolved_segmentation:
+        found.append(f"segmentation ({resolved_segmentation.name})")
+    if resolved_evaluation:
+        found.append(f"evaluation ({resolved_evaluation.name})")
+    if resolved_optimization:
+        found.append(f"optimization ({resolved_optimization.name})")
+
+    if not found:
+        console.print(
+            "[yellow]No result files found. Run inspect/segment/evaluate first "
+            "or pass explicit --inspection / --segmentation flags.[/yellow]"
+        )
+
+    with console.status("[bold green]Building report …"):
+        try:
+            data = load_report_data(
+                inspection_json=resolved_inspection,
+                segmentation_json=resolved_segmentation,
+                evaluation_json=resolved_evaluation,
+                optimization_json=resolved_optimization,
+                project_yaml=project,
+                overlay_dir=(
+                    resolved_overlays if resolved_overlays and resolved_overlays.is_dir() else None
+                ),
+                plots_dir=resolved_plots if resolved_plots and resolved_plots.is_dir() else None,
+                command="microagent report",
+            )
+            generate_report(data, output)
+        except ImportError as exc:
+            console.print(f"[bold red]Import error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+        except Exception as exc:
+            console.print(f"[bold red]Report generation failed:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+
+    console.print(
+        Panel(
+            f"[bold]Sections included:[/bold]  {', '.join(found) or '(provenance only)'}\n"
+            f"[bold]Output:[/bold]  {output}",
+            title="Report Generated",
+            border_style="green",
+        )
+    )
+    console.print(f"\n[green]✓ Report saved →[/green] {output}")

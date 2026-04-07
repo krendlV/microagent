@@ -479,6 +479,12 @@ def run_segmentation(
             raw = yaml.safe_load(project_path.read_text())
             if isinstance(raw, dict):
                 project = raw
+            else:
+                import logging as _log
+
+                _log.getLogger(__name__).warning(
+                    "project.yaml does not contain a dict, ignoring: %s", project_path
+                )
 
     # ── Instantiate segmenter ──────────────────────────────────────────────────
     segmenter: Segmenter

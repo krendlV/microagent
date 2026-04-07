@@ -110,7 +110,9 @@ def _load_project(project_path: Path | None) -> dict[str, Any] | None:
     Returns
     -------
     dict[str, Any] | None
-        Parsed YAML contents as a dict, or None if unavailable/invalid.
+        Parsed YAML contents as a dict, or ``None`` if *project_path* is
+        ``None``, the file does not exist, the YAML content is not a dict,
+        or parsing fails due to ``yaml.YAMLError`` or ``OSError``.
     """
     if project_path is None:
         return None

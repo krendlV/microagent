@@ -282,7 +282,10 @@ def inspect_directory(
     for fp, img in loaded:
         threshold = _dtype_max(img.dtype) * NEAR_ZERO_THRESHOLD
         if float(img.mean()) < threshold:
-            issues.append(f"Near-zero image (mean intensity below 1% of dtype max): {fp.name}")
+            issues.append(
+                f"Near-zero image (mean intensity below {NEAR_ZERO_THRESHOLD:.0%} of dtype max): "
+                f"{fp.name}"
+            )
 
     # 4. Near-saturated images (>SATURATION_THRESHOLD pixels at dtype max)
     for fp, img in loaded:

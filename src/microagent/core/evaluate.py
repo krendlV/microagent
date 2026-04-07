@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -78,7 +77,7 @@ class EvaluationResult:
     worst_images: list[str]  # bottom 3 by F1@0.5
     unmatched_preds: list[str]
     unmatched_gts: list[str]
-    comparison: Optional[ComparisonResult] = None
+    comparison: ComparisonResult | None = None
 
     def save_json(self, path: Path) -> None:
         path = Path(path)

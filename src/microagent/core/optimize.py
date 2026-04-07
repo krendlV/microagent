@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import pickle
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     import optuna
@@ -97,6 +100,18 @@ class OptimizationResult:
 
 
 def _load_project(project_path: Path | None) -> dict[str, Any] | None:
+    """Load and validate a project YAML file.
+
+    Parameters
+    ----------
+    project_path : Path | None
+        Path to a project.yaml file, or None.
+
+    Returns
+    -------
+    dict[str, Any] | None
+        Parsed YAML contents as a dict, or None if unavailable/invalid.
+    """
     if project_path is None:
         return None
     project_path = Path(project_path)
@@ -105,8 +120,11 @@ def _load_project(project_path: Path | None) -> dict[str, Any] | None:
     try:
         import yaml  # type: ignore[import-untyped]
 
-        return yaml.safe_load(project_path.read_text())
-    except Exception:
+        data = yaml.safe_load(project_path.read_text())
+        if not isinstance(data, dict):
+            return None
+        return data
+    except (yaml.YAMLError, OSError):
         return None
 
 
@@ -152,7 +170,20 @@ def _match_gt_paths(image_paths: list[Path], gt_dir: Path) -> list[Path | None]:
 
 
 def _build_segmenter(backend: str, params: dict[str, Any]) -> Any:
-    """Instantiate a segmenter with the given parameter dict."""
+    """Instantiate a segmenter with the given parameter dict.
+
+    Parameters
+    ----------
+    backend : str
+        Either ``'cellpose'`` or ``'stardist'``.
+    params : dict[str, Any]
+        Parameter dictionary with backend-specific keys.
+
+    Returns
+    -------
+    Segmenter
+        Instantiated segmenter subclass.
+    """
     from microagent.core.segment import CellPoseSegmenter, StarDistSegmenter
 
     if backend == "cellpose":
@@ -168,7 +199,22 @@ def _build_segmenter(backend: str, params: dict[str, Any]) -> Any:
 
 
 def _suggest_params(trial: Any, backend: str, search_space: dict[str, Any]) -> dict[str, Any]:
-    """Ask Optuna to suggest parameters for one trial."""
+    """Ask Optuna to suggest parameters for one trial.
+
+    Parameters
+    ----------
+    trial : optuna.Trial
+        Current Optuna trial object.
+    backend : str
+        Either ``'cellpose'`` or ``'stardist'``.
+    search_space : dict[str, Any]
+        Bounds for the parameter search space.
+
+    Returns
+    -------
+    dict[str, Any]
+        Suggested parameter dict for this trial.
+    """
     if backend == "cellpose":
         diam_low = float(search_space.get("diameter_low", 10.0))
         diam_high = float(search_space.get("diameter_high", 200.0))
@@ -185,7 +231,22 @@ def _suggest_params(trial: Any, backend: str, search_space: dict[str, Any]) -> d
 
 
 def _get_metric_value(im_metrics: Any, metric: str, iou_threshold: float) -> float:
-    """Extract a scalar metric from an ImageMetrics instance."""
+    """Extract a scalar metric from an ImageMetrics instance.
+
+    Parameters
+    ----------
+    im_metrics : ImageMetrics
+        Per-image evaluation metrics.
+    metric : str
+        Metric name: ``'f1'``, ``'precision'``, ``'recall'``, ``'map'``, or ``'pq'``.
+    iou_threshold : float
+        IoU threshold to look up for threshold-dependent metrics.
+
+    Returns
+    -------
+    float
+        Scalar metric value.
+    """
     if metric == "map":
         return float(im_metrics.map)
     if metric in ("pq", "panoptic_quality"):
@@ -266,7 +327,26 @@ def _compute_baseline(
     names: list[str],
     backend: str,
 ) -> float:
-    """Return the target metric with default (un-tuned) parameters."""
+    """Return the target metric with default (un-tuned) parameters.
+
+    Parameters
+    ----------
+    config : OptimizeConfig
+        Optimisation configuration.
+    images : list[np.ndarray]
+        Input image arrays.
+    gts : list[np.ndarray]
+        Ground-truth label arrays aligned with *images*.
+    names : list[str]
+        Filenames aligned with *images*.
+    backend : str
+        Segmentation backend name.
+
+    Returns
+    -------
+    float
+        Mean metric value across all image/GT pairs.
+    """
     from microagent.core.evaluate import _evaluate_pair
 
     segmenter = _build_segmenter(backend, {})
@@ -404,6 +484,7 @@ def run_optimization(
         study_path = Path(config.image_dir).parent / "optuna_study.pkl"
         study_path.write_bytes(pickle.dumps(study))
     except Exception:
+        logger.warning("Failed to persist Optuna study to disk", exc_info=True)
         study_path = None
 
     best_params: dict[str, Any] = dict(study.best_params) if study.best_trials else {}

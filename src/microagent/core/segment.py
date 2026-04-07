@@ -476,7 +476,9 @@ def run_segmentation(
         if project_path.exists():
             import yaml  # type: ignore[import-untyped]
 
-            project = yaml.safe_load(project_path.read_text())
+            raw = yaml.safe_load(project_path.read_text())
+            if isinstance(raw, dict):
+                project = raw
 
     # ── Instantiate segmenter ──────────────────────────────────────────────────
     segmenter: Segmenter

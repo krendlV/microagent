@@ -36,7 +36,7 @@ def inspect_data(path: str) -> dict[str, Any]:
         report = inspect_directory(Path(path))
         return {"status": "success", **report.to_dict()}
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 @mcp.tool()
@@ -63,7 +63,7 @@ def segment(
         )
         return {"status": "success", **result.to_dict()}
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 @mcp.tool()
@@ -83,7 +83,7 @@ def evaluate(
         result = evaluate_masks(Path(pred_dir), Path(gt_dir), thresholds=thresh_list)
         return {"status": "success", **asdict(result)}
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 @mcp.tool()
@@ -120,7 +120,7 @@ def train(
         d["config_used"]["save_dir"] = str(result.config_used.save_dir)
         return {"status": "success", **d}
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 @mcp.tool()
@@ -152,7 +152,7 @@ def optimize(
             "study_path": str(result.study_path) if result.study_path else None,
         }
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 @mcp.tool()
@@ -176,7 +176,7 @@ def generate_report(output: str = "report.html") -> dict[str, Any]:
         out_path = _gen_report(data, Path(output))
         return {"status": "success", "report_path": str(out_path)}
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 @mcp.tool()
@@ -194,7 +194,7 @@ def get_project_info() -> dict[str, Any]:
         data = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
         return {"status": "success", **data}
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 @mcp.tool()
@@ -223,7 +223,7 @@ def create_project(
         out_path.write_text(yaml.dump(project, default_flow_style=False), encoding="utf-8")
         return {"status": "success", "project_path": str(out_path), "project": project}
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)}
 
 
 # ---------------------------------------------------------------------------

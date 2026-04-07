@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.box import SIMPLE_HEAD
@@ -28,12 +27,12 @@ def main(ctx: typer.Context) -> None:
 @app.command()
 def inspect(
     directory: Path = typer.Argument(..., help="Directory containing images to inspect"),
-    channels: Optional[str] = typer.Option(
+    channels: str | None = typer.Option(
         None,
         "--channels",
         help="Comma-separated channel indices to analyse, e.g. 0,1",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output",
         "-o",
@@ -367,13 +366,13 @@ def evaluate(
         "--thresholds",
         help="Comma-separated IoU thresholds",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output",
         "-o",
         help="Save metrics JSON to this path",
     ),
-    compare: Optional[Path] = typer.Option(
+    compare: Path | None = typer.Option(
         None,
         "--compare",
         help="Compare against a previously saved metrics JSON",
@@ -485,7 +484,7 @@ def init(
         "--data-dir",
         help="Directory containing your microscopy images",
     ),
-    doc: Optional[Path] = typer.Option(
+    doc: Path | None = typer.Option(
         None,
         "--doc",
         "-d",
@@ -757,7 +756,7 @@ def demo(
 
 @app.command()
 def report(
-    project: Optional[Path] = typer.Option(
+    project: Path | None = typer.Option(
         None,
         "--project",
         "-p",
@@ -769,32 +768,32 @@ def report(
         "-o",
         help="Destination HTML file",
     ),
-    inspection_json: Optional[Path] = typer.Option(
+    inspection_json: Path | None = typer.Option(
         None,
         "--inspection",
         help="Path to inspection JSON (auto-detected as inspection.json if omitted)",
     ),
-    segmentation_json: Optional[Path] = typer.Option(
+    segmentation_json: Path | None = typer.Option(
         None,
         "--segmentation",
         help="Path to segmentation JSON (auto-detected as segmentation.json if omitted)",
     ),
-    evaluation_json: Optional[Path] = typer.Option(
+    evaluation_json: Path | None = typer.Option(
         None,
         "--evaluation",
         help="Path to evaluation/metrics JSON (auto-detected as metrics.json if omitted)",
     ),
-    optimization_json: Optional[Path] = typer.Option(
+    optimization_json: Path | None = typer.Option(
         None,
         "--optimization",
         help="Path to optimization JSON (auto-detected as optimization.json if omitted)",
     ),
-    overlay_dir: Optional[Path] = typer.Option(
+    overlay_dir: Path | None = typer.Option(
         None,
         "--overlays",
         help="Directory of overlay PNGs (auto-detected as overlays/ if omitted)",
     ),
-    plots_dir: Optional[Path] = typer.Option(
+    plots_dir: Path | None = typer.Option(
         None,
         "--plots",
         help="Directory of metric plot PNGs (auto-detected as plots/ if omitted)",
@@ -804,7 +803,7 @@ def report(
     from microagent.viz.report import generate_report, load_report_data
 
     # ── Auto-discover result files if not provided ────────────────────────────
-    def _auto(explicit: Optional[Path], *candidates: str) -> Optional[Path]:
+    def _auto(explicit: Path | None, *candidates: str) -> Path | None:
         if explicit:
             return explicit
         for name in candidates:
@@ -876,7 +875,7 @@ def report(
 
 @app.command()
 def export(
-    run: Optional[str] = typer.Option(
+    run: str | None = typer.Option(
         None,
         "--run",
         help="8-character run ID to bundle (from experiments.jsonl)",
@@ -903,7 +902,7 @@ def export(
         "--experiments",
         help="Path to experiments.jsonl log",
     ),
-    project: Optional[Path] = typer.Option(
+    project: Path | None = typer.Option(
         None,
         "--project",
         help="Path to project.yaml (auto-detected if omitted)",

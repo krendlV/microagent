@@ -7,7 +7,6 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -66,7 +65,7 @@ class TrainConfig:
     model: str = "cellpose"
     pretrained: str = "cpsam"
     train_dir: Path = field(default_factory=lambda: Path("train"))
-    test_dir: Optional[Path] = None
+    test_dir: Path | None = None
     learning_rate: float = 1e-5
     weight_decay: float = 0.1
     n_epochs: int = 100
@@ -178,7 +177,7 @@ def prepare_data(
     gt_dir: Path,
     test_split: float = 0.2,
     seed: int = 42,
-    output_root: Optional[Path] = None,
+    output_root: Path | None = None,
 ) -> tuple[Path, Path]:
     """Organise images and masks into CellPose-compatible train/test directories.
 

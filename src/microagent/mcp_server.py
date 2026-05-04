@@ -253,5 +253,20 @@ def _find_dir(base: Path, *candidates: str) -> Path | None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+# FastMCP instance for use as a library
+app = mcp
+
+
+def main() -> None:
+    """Run the MCP server."""
+    import sys
+
+    from rich.console import Console
+
+    console = Console(file=sys.stderr)
+    console.print("[bold green]Starting MicroAgent MCP server[/bold green]")
     mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

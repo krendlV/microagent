@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 microagent = "microagent.cli:app"
+microagent-mcp-server = "microagent.mcp_server:main"
 
 [project.optional-dependencies]
 stardist = ["stardist"]

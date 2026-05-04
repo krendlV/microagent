@@ -1056,3 +1056,37 @@ def export(
         except Exception as exc:
             console.print(f"[bold red]Export failed:[/bold red] {exc}")
             raise typer.Exit(1) from None
+
+
+@app.command()
+def mcp_server(
+    transport: str = typer.Option("stdio", "--transport", help="Transport type: stdio or http"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host for HTTP transport"),
+    port: int = typer.Option(8080, "--port", help="Port for HTTP transport"),
+) -> None:
+    """Run the MicroAgent MCP server.
+
+    Connect to any MCP-compatible client (Vibe, Claude Code, etc.).
+    For Vibe, add to config.toml:
+
+        [[mcp_servers]]
+        name = "microagent"
+        command = "microagent"
+        args = ["mcp-server"]
+    """
+    try:
+        from mcp.server.fastmcp import FastMCP
+
+        _HAS_MCP = True
+    except ImportError:
+        console.print("[bold red]Error:[/bold red] mcp package required. Install with: pip install 'microagent[mcp]'")
+        raise typer.Exit(1) from None
+
+    from microagent.mcp_server import mcp
+
+    if transport == "http":
+        console.print(f"[bold green]Starting MCP server on http://{host}:{port}[/bold green]")
+        mcp.run(transport="http", host=host, port=port)
+    else:
+        console.print("[bold green]Starting MCP server (stdio transport)[/bold green]")
+        mcp.run(transport="stdio")

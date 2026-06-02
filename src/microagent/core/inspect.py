@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import matplotlib
+
+logger = logging.getLogger(__name__)
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -29,6 +32,23 @@ except ImportError:
 
 _TIFF_EXTS = frozenset({".tif", ".tiff"})
 _IMAGE_EXTS = frozenset({".tif", ".tiff", ".png", ".jpg", ".jpeg"})
+
+# ── QC and thumbnail constants ─────────────────────────────────────────────────
+
+THUMBNAIL_MAX_IMAGES = 9
+"""Maximum number of images to include in the thumbnail montage."""
+
+THUMBNAIL_COLS = 3
+"""Number of columns in the thumbnail montage grid."""
+
+THUMBNAIL_DPI = 300
+"""DPI resolution for the saved thumbnail montage."""
+
+NEAR_ZERO_THRESHOLD = 0.01
+"""Fraction of dtype max below which an image mean is considered near-zero."""
+
+SATURATION_THRESHOLD = 0.10
+"""Fraction of pixels at dtype max above which an image is considered saturated."""
 
 
 @dataclass
@@ -123,9 +143,9 @@ def _dtype_max(dtype: np.dtype) -> float:
 
 
 def _generate_thumbnail(images: list[np.ndarray], out_path: Path) -> None:
-    """Save a montage PNG of up to 9 images at 300 DPI."""
-    n = min(len(images), 9)
-    ncols = min(n, 3)
+    """Save a montage PNG of up to THUMBNAIL_MAX_IMAGES images."""
+    n = min(len(images), THUMBNAIL_MAX_IMAGES)
+    ncols = min(n, THUMBNAIL_COLS)
     nrows = (n + ncols - 1) // ncols
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 2, nrows * 2), squeeze=False)
@@ -144,7 +164,7 @@ def _generate_thumbnail(images: list[np.ndarray], out_path: Path) -> None:
 
     fig.tight_layout(pad=0.5)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(str(out_path), dpi=300, bbox_inches="tight")
+    fig.savefig(str(out_path), dpi=THUMBNAIL_DPI, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -198,6 +218,7 @@ def inspect_directory(
             img = _to_channels_first(_load_image(fp))
             loaded.append((fp, img))
         except Exception as exc:
+            logger.debug("Failed to load %s: %s", fp.name, exc)
             issues.append(f"Failed to load {fp.name}: {exc}")
 
     if not loaded:
@@ -257,17 +278,20 @@ def inspect_directory(
     if len(unique_shapes) > 1:
         issues.append(f"Inconsistent image dimensions: {unique_shapes}")
 
-    # 3. Near-zero images (mean < 1 % of dtype max)
+    # 3. Near-zero images (mean < NEAR_ZERO_THRESHOLD of dtype max)
     for fp, img in loaded:
-        threshold = _dtype_max(img.dtype) * 0.01
+        threshold = _dtype_max(img.dtype) * NEAR_ZERO_THRESHOLD
         if float(img.mean()) < threshold:
-            issues.append(f"Near-zero image (mean intensity below 1% of dtype max): {fp.name}")
+            issues.append(
+                f"Near-zero image (mean intensity below {NEAR_ZERO_THRESHOLD:.0%} of dtype max): "
+                f"{fp.name}"
+            )
 
-    # 4. Near-saturated images (>10 % pixels at dtype max)
+    # 4. Near-saturated images (>SATURATION_THRESHOLD pixels at dtype max)
     for fp, img in loaded:
         dmax = _dtype_max(img.dtype)
         sat_frac = float((img >= dmax).sum()) / img.size
-        if sat_frac > 0.10:
+        if sat_frac > SATURATION_THRESHOLD:
             issues.append(f"Near-saturated image ({sat_frac:.1%} pixels at dtype max): {fp.name}")
 
     # 5. Single-file directory
@@ -276,13 +300,14 @@ def inspect_directory(
 
     # Thumbnail montage
     thumbnail_paths: list[str] = []
-    thumb_imgs = [img for _, img in loaded[:9]]
+    thumb_imgs = [img for _, img in loaded[:THUMBNAIL_MAX_IMAGES]]
     if thumb_imgs:
         thumb_out = path / "microagent_inspection" / "thumbnail_montage.png"
         try:
             _generate_thumbnail(thumb_imgs, thumb_out)
             thumbnail_paths.append(str(thumb_out))
         except Exception as exc:
+            logger.warning("Thumbnail generation failed: %s", exc)
             issues.append(f"Thumbnail generation failed: {exc}")
 
     return InspectionReport(

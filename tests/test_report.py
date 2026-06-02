@@ -21,15 +21,26 @@ runner = CliRunner()
 
 def _make_provenance() -> RunMetadata:
     return RunMetadata(
-        timestamp="2026-03-23T10:00:00+00:00",
         microagent_version="0.1.0",
         python_version="3.10.0",
         platform="Linux-test",
-        cpu_count=4,
-        hostname="testhost",
+        cellpose_version=None,
+        stardist_version=None,
+        torch_version="unknown",
+        numpy_version=np.__version__,
+        cuda_version=None,
+        gpu_name=None,
+        gpu_vram_mb=None,
+        cpu_model="testcpu",
+        ram_total_gb=16.0,
+        data_hash="",
+        parameters={},
+        random_seed=42,
+        timestamp_utc="2026-03-23T10:00:00+00:00",
+        wall_clock_seconds=0.0,
+        git_commit=None,
+        git_dirty=None,
         command="test",
-        seed=42,
-        software_versions={"microagent": "0.1.0", "numpy": np.__version__},
     )
 
 
@@ -148,7 +159,7 @@ def test_report_generates_html(tmp_path: Path) -> None:
 
     # Provenance values
     assert "0.1.0" in html
-    assert "testhost" in html
+    assert "Linux-test" in html
 
 
 def test_report_images_embedded(tmp_path: Path) -> None:
@@ -221,15 +232,15 @@ def test_report_no_evaluation(tmp_path: Path) -> None:
 
 
 def test_report_provenance_collect() -> None:
-    """RunMetadata.collect() returns a populated instance."""
-    meta = RunMetadata.collect(command="pytest", seed=0)
+    """collect_metadata() returns a populated RunMetadata instance."""
+    from microagent.fair.provenance import collect_metadata
+
+    meta = collect_metadata(command="pytest", random_seed=0)
     assert meta.microagent_version == "0.1.0"
     assert meta.python_version.startswith("3.")
-    assert "microagent" in meta.software_versions
-    assert "numpy" in meta.software_versions
     assert meta.command == "pytest"
-    assert meta.seed == 0
-    assert meta.timestamp  # non-empty
+    assert meta.random_seed == 0
+    assert meta.timestamp_utc  # non-empty
 
 
 def test_report_cli(tmp_path: Path) -> None:

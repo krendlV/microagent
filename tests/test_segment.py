@@ -379,10 +379,14 @@ class TestSegmentCLI:
 
     def test_segment_help(self) -> None:
         """segment --help exits 0 and mentions key options."""
+        import re
+
         result = runner.invoke(app, ["segment", "--help"])
         assert result.exit_code == 0
-        assert "--model" in result.output
-        assert "--output" in result.output
+        # Strip ANSI escape codes before checking for option names
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--model" in plain
+        assert "--output" in plain
 
     @pytest.mark.slow
     def test_segment_cli_with_diameter(self, single_image_dir: Path, tmp_path: Path) -> None:

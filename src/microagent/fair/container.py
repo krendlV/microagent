@@ -259,9 +259,13 @@ def generate_environment_lock(output_path: Path) -> Path:
     except ImportError:
         pass
 
+    from datetime import datetime, timezone
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+
     sections: list[str] = [
         "# MicroAgent Environment Lock",
-        f"# Generated: {__import__('datetime').datetime.utcnow().isoformat()}Z",
+        f"# Generated: {now_utc}",
         "",
         "# === System Info ===",
         f"# OS: {platform.platform()}",

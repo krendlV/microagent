@@ -150,6 +150,36 @@ class TestCellPoseSegmenter:
         assert params["diameter"] == 25
         assert params["channels"] == [0, 1]
 
+    def test_predict_warns_and_drops_channels_on_cellpose_v4(self) -> None:
+        """CellPose v4 channels selection is surfaced instead of silently forwarded."""
+        from unittest.mock import MagicMock, patch
+
+        import microagent.core.segment as seg_mod
+
+        cellpose_model = MagicMock()
+        cellpose_model.eval.return_value = (
+            np.ones((16, 16), dtype=np.int32),
+            None,
+            None,
+        )
+
+        seg = seg_mod.CellPoseSegmenter.__new__(seg_mod.CellPoseSegmenter)
+        seg._model = cellpose_model
+        seg._diameter = 30
+        seg._flow_threshold = 0.4
+        seg._cellprob_threshold = 0.0
+        seg._channels = [0, 1]
+
+        with patch("microagent.core.cellpose_compat.version", return_value="4.0.9"), patch(
+            "microagent.core.cellpose_compat.console.print"
+        ) as warn:
+            mask = seg.predict(np.zeros((16, 16), dtype=np.uint16))
+
+        assert mask.dtype == np.int32
+        warn.assert_called_once()
+        assert "channels argument" in warn.call_args.args[0]
+        assert "channels" not in cellpose_model.eval.call_args.kwargs
+
 
 # ── Model selection ────────────────────────────────────────────────────────────
 

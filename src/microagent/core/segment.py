@@ -11,6 +11,11 @@ from typing import Any
 
 import numpy as np
 
+from microagent.core.cellpose_compat import (
+    is_cellpose_v4_or_newer,
+    warn_cellpose_v4_channels_ignored,
+)
+
 # ── Optional dependency flags ──────────────────────────────────────────────────
 
 try:
@@ -175,13 +180,18 @@ class CellPoseSegmenter(Segmenter):
         cellprob_threshold = kwargs.get("cellprob_threshold", self._cellprob_threshold)
         channels = kwargs.get("channels", self._channels)
 
-        masks, _flows, _styles = self._model.eval(
-            img2d,
-            diameter=diameter,
-            flow_threshold=flow_threshold,
-            cellprob_threshold=cellprob_threshold,
-            channels=channels,
-        )
+        eval_kwargs: dict[str, Any] = {
+            "diameter": diameter,
+            "flow_threshold": flow_threshold,
+            "cellprob_threshold": cellprob_threshold,
+        }
+        if is_cellpose_v4_or_newer():
+            if channels != [0, 0]:
+                warn_cellpose_v4_channels_ignored(channels)
+        else:
+            eval_kwargs["channels"] = channels
+
+        masks, _flows, _styles = self._model.eval(img2d, **eval_kwargs)
         return masks.astype(np.int32)
 
     def get_info(self) -> dict[str, Any]:

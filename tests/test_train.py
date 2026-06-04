@@ -249,3 +249,50 @@ def test_train_cellpose_rejects_all_sparse_masks(
         ),
     ):
         train_cellpose(cfg)
+
+
+def test_train_cellpose_uses_pretrained_model_on_cellpose_v4(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CellPose v4 must not receive the ignored model_type constructor arg."""
+    import sys
+    from unittest.mock import MagicMock
+
+    from microagent.core import train as train_module
+    from microagent.core.train import TrainConfig, train_cellpose
+
+    fake_model = SimpleNamespace(net=object())
+    fake_cellpose = ModuleType("cellpose")
+    fake_cellpose.models = SimpleNamespace(CellposeModel=MagicMock(return_value=fake_model))
+    fake_cellpose.train = SimpleNamespace(
+        train_seg=MagicMock(return_value=(tmp_path / "models" / "model.cp", [1.0], []))
+    )
+    monkeypatch.setitem(sys.modules, "cellpose", fake_cellpose)
+    monkeypatch.setitem(sys.modules, "cellpose.models", fake_cellpose.models)
+    monkeypatch.setitem(sys.modules, "cellpose.train", fake_cellpose.train)
+    monkeypatch.setattr(train_module, "_HAS_CELLPOSE", True)
+    monkeypatch.setattr("microagent.core.cellpose_compat.version", lambda _name: "4.0.9")
+
+    train_dir = tmp_path / "train"
+    train_dir.mkdir()
+    mask = np.zeros((32, 32), dtype=np.uint16)
+    for i, (row, col) in enumerate(
+        [(2, 2), (2, 12), (12, 2), (12, 12), (22, 2), (22, 12)], start=1
+    ):
+        mask[row : row + 4, col : col + 4] = i
+    _write_cellpose_pair(train_dir, "dense", mask)
+
+    cfg = TrainConfig(
+        pretrained="cyto3",
+        train_dir=train_dir,
+        n_epochs=1,
+        save_dir=tmp_path / "models",
+    )
+
+    train_cellpose(cfg)
+
+    fake_cellpose.models.CellposeModel.assert_called_once_with(
+        gpu=False,
+        pretrained_model="cyto3",
+    )
+    assert "model_type" not in fake_cellpose.models.CellposeModel.call_args.kwargs

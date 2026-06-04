@@ -12,6 +12,8 @@ from typing import Optional
 
 import numpy as np
 
+from microagent.core.cellpose_compat import cellpose_model_kwargs
+
 try:
     import tifffile as _tifffile
 
@@ -364,10 +366,7 @@ def train_cellpose(config: TrainConfig) -> TrainResult:
 
     # Initialise model
     np.random.seed(config.seed)
-    model = cp_models.CellposeModel(
-        gpu=False,
-        model_type=config.pretrained,
-    )
+    model = cp_models.CellposeModel(**cellpose_model_kwargs(config.pretrained, gpu=False))
 
     config.save_dir.mkdir(parents=True, exist_ok=True)
 

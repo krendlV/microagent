@@ -130,6 +130,41 @@ class Segmenter(ABC):
         """
 
 
+# ── Channel handling ───────────────────────────────────────────────────────────
+
+
+def _first_channel_2d(image: np.ndarray) -> np.ndarray:
+    """Reduce an image to a single 2-D channel for grayscale backends.
+
+    Accepts ``(H, W)``, channel-first ``(C, H, W)``, or channel-last
+    ``(H, W, C)`` arrays and returns the first channel as a float32 ``(H, W)``
+    array. The channel axis is detected by size: an axis of length ≤ 4 is
+    treated as channels (RGB/RGBA style). Channel-last is recognised first
+    because that is how ``tifffile``/``imageio`` load RGB TIFFs — indexing such
+    an array with ``image[0]`` would otherwise grab the first *row* of pixels
+    rather than the first channel.
+
+    Parameters
+    ----------
+    image:
+        Input array of shape ``(H, W)``, ``(C, H, W)``, or ``(H, W, C)``.
+
+    Returns
+    -------
+    np.ndarray
+        First channel as a ``(H, W)`` float32 array.
+    """
+    if image.ndim == 2:
+        return image.astype(np.float32)
+    if image.ndim == 3:
+        # Channel-last (H, W, C), e.g. an RGB TIFF from tifffile.
+        if image.shape[-1] <= 4 < image.shape[0]:
+            return image[..., 0].astype(np.float32)
+        # Channel-first (C, H, W).
+        return image[0].astype(np.float32)
+    raise ValueError(f"Unsupported image shape for 2-D reduction: {image.shape}")
+
+
 # ── CellPose backend ───────────────────────────────────────────────────────────
 
 
@@ -230,13 +265,21 @@ class CellPoseSegmenter(Segmenter):
         np.ndarray
             Label mask (H, W), int32.
         """
-        # Flatten multi-channel to 2-D for CellPose (use first channel)
-        img2d = image[0].astype(np.float32) if image.ndim == 3 else image.astype(np.float32)
+        # Flatten multi-channel to 2-D for CellPose (use first channel),
+        # handling both channel-first and channel-last (RGB TIFF) layouts.
+        img2d = _first_channel_2d(image)
 
         diameter = kwargs.get("diameter", self._diameter)
         flow_threshold = kwargs.get("flow_threshold", self._flow_threshold)
         cellprob_threshold = kwargs.get("cellprob_threshold", self._cellprob_threshold)
         channels = kwargs.get("channels", self._channels)
+
+        # CellPose treats diameter=None as "auto-estimate". A non-positive
+        # diameter (used as a sentinel for "auto" in project.yaml / the model
+        # recommendation matrix) would otherwise trigger a division by zero
+        # inside CellPose (image_scaling = 30. / diameter), so normalise it.
+        if diameter is not None and diameter <= 0:
+            diameter = None
 
         eval_kwargs: dict[str, Any] = {
             "diameter": diameter,
@@ -324,7 +367,7 @@ class StarDistSegmenter(Segmenter):
         np.ndarray
             Label mask (H, W), int32.
         """
-        img2d = image[0].astype(np.float32) if image.ndim == 3 else image.astype(np.float32)
+        img2d = _first_channel_2d(image)
 
         # Normalize to [0, 1]
         img_max = img2d.max()

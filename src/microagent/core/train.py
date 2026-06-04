@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import random
 import shutil
 import time
@@ -369,6 +370,8 @@ def train_cellpose(config: TrainConfig) -> TrainResult:
         SGD=False,
         batch_size=config.batch_size,
     )
+    if "min_train_masks" in inspect.signature(cp_train.train_seg).parameters:
+        train_kwargs["min_train_masks"] = 1
 
     try:
         # cellpose >= 3: train_seg returns (path, train_losses, test_losses)

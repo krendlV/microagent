@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pytest
 from typer.testing import CliRunner
 
 from microagent.cli import app
@@ -21,15 +20,26 @@ runner = CliRunner()
 
 def _make_provenance() -> RunMetadata:
     return RunMetadata(
-        timestamp="2026-03-23T10:00:00+00:00",
         microagent_version="0.1.0",
         python_version="3.10.0",
         platform="Linux-test",
-        cpu_count=4,
-        hostname="testhost",
+        cellpose_version=None,
+        stardist_version=None,
+        torch_version="2.0.0",
+        numpy_version=np.__version__,
+        cuda_version=None,
+        gpu_name=None,
+        gpu_vram_mb=None,
+        cpu_model="x86_64-test",
+        ram_total_gb=16.0,
+        data_hash="abc123",
+        parameters={"model": "cyto3"},
+        random_seed=42,
+        timestamp_utc="2026-03-23T10:00:00+00:00",
+        wall_clock_seconds=1.5,
+        git_commit="deadbeef",
+        git_dirty=False,
         command="test",
-        seed=42,
-        software_versions={"microagent": "0.1.0", "numpy": np.__version__},
     )
 
 
@@ -148,13 +158,12 @@ def test_report_generates_html(tmp_path: Path) -> None:
 
     # Provenance values
     assert "0.1.0" in html
-    assert "testhost" in html
+    assert "x86_64-test" in html
 
 
 def test_report_images_embedded(tmp_path: Path) -> None:
     """PNG files are embedded as base64 data URIs (no external file references)."""
     # Create a tiny PNG-like file (1x1 white pixel PNG)
-    import base64
     import struct
     import zlib
 
@@ -225,11 +234,10 @@ def test_report_provenance_collect() -> None:
     meta = RunMetadata.collect(command="pytest", seed=0)
     assert meta.microagent_version == "0.1.0"
     assert meta.python_version.startswith("3.")
-    assert "microagent" in meta.software_versions
-    assert "numpy" in meta.software_versions
+    assert meta.numpy_version
     assert meta.command == "pytest"
-    assert meta.seed == 0
-    assert meta.timestamp  # non-empty
+    assert meta.random_seed == 0
+    assert meta.timestamp_utc  # non-empty
 
 
 def test_report_cli(tmp_path: Path) -> None:

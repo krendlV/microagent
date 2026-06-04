@@ -7,7 +7,7 @@ import importlib.metadata
 import platform
 import subprocess
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -84,6 +84,11 @@ class RunMetadata:
     def to_dict(self) -> dict:
         """Return a JSON-serialisable dict."""
         return asdict(self)
+
+    @classmethod
+    def collect(cls, command: str = "", seed: int = 0, **kwargs) -> RunMetadata:
+        """Collect run metadata using the canonical module-level collector."""
+        return collect_metadata(command=command, random_seed=seed, **kwargs)
 
 
 def _pkg_version(name: str) -> str | None:

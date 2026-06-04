@@ -1,4 +1,4 @@
-"""Segmentation backends: CellPose, StarDist, and auto-selection logic."""
+"""Segmentation backends: CellPose, StarDist, micro-SAM, and auto-selection logic."""
 
 from __future__ import annotations
 
@@ -32,6 +32,20 @@ try:
 except ImportError:
     _StarDist2D = None
     _HAS_STARDIST = False
+
+try:
+    from micro_sam.automatic_segmentation import (
+        automatic_instance_segmentation as _microsam_automatic_instance_segmentation,
+    )
+    from micro_sam.automatic_segmentation import (
+        get_predictor_and_segmenter as _microsam_get_predictor_and_segmenter,
+    )
+
+    _HAS_MICROSAM = True
+except ImportError:
+    _microsam_automatic_instance_segmentation = None
+    _microsam_get_predictor_and_segmenter = None
+    _HAS_MICROSAM = False
 
 try:
     import tifffile  # noqa: F401
@@ -146,9 +160,7 @@ class CellPoseSegmenter(Segmenter):
         gpu: bool = True,
     ) -> None:
         if not _HAS_CELLPOSE:
-            raise ImportError(
-                "cellpose is not installed. Install it with: pip install cellpose"
-            )
+            raise ImportError("cellpose is not installed. Install it with: pip install cellpose")
         self._model_name = model_name
         self._diameter = diameter
         self._flow_threshold = flow_threshold
@@ -259,9 +271,7 @@ class StarDistSegmenter(Segmenter):
         scale: float | None = None,
     ) -> None:
         if not _HAS_STARDIST:
-            raise ImportError(
-                "stardist is not installed. Install it with: pip install stardist"
-            )
+            raise ImportError("stardist is not installed. Install it with: pip install stardist")
         self._model_name = model_name
         self._prob_thresh = prob_thresh
         self._nms_thresh = nms_thresh
@@ -325,13 +335,197 @@ class StarDistSegmenter(Segmenter):
         return params
 
 
+# ── micro-SAM backend ──────────────────────────────────────────────────────────
+
+
+class MicroSamSegmenter(Segmenter):
+    """micro-SAM automatic instance segmentation backend.
+
+    ``micro_sam`` is not distributed on PyPI; install it from conda-forge with
+    ``conda install -c conda-forge micro_sam``.
+
+    Parameters
+    ----------
+    model_type:
+        micro-SAM model type. The default targets organelles in EM data.
+    checkpoint:
+        Optional checkpoint path. If omitted, micro-SAM downloads/caches weights.
+    device:
+        Torch device string. None lets micro-SAM choose.
+    segmentation_mode:
+        Automatic segmentation mode: ``"amg"``, ``"ais"``, or ``"apg"``.
+    is_tiled:
+        Use micro-SAM's tiled automatic segmenter.
+    tile_shape:
+        Optional tile shape for embedding computation.
+    halo:
+        Optional tile overlap for embedding computation.
+    batch_size:
+        Batch size for embedding/prompt computation.
+    min_size:
+        Minimum object size passed to decoder-backed generators.
+    """
+
+    def __init__(
+        self,
+        model_type: str = "vit_b_em_organelles",
+        checkpoint: str | Path | None = None,
+        device: str | None = None,
+        segmentation_mode: str | None = None,
+        is_tiled: bool = False,
+        tile_shape: tuple[int, int] | None = None,
+        halo: tuple[int, int] | None = None,
+        batch_size: int = 1,
+        min_size: int = 25,
+        verbose: bool = False,
+    ) -> None:
+        if not _HAS_MICROSAM:
+            raise ImportError(
+                "micro_sam is not installed. Install it with: "
+                "conda install -c conda-forge micro_sam"
+            )
+        self._model_type = model_type
+        self._checkpoint = str(checkpoint) if checkpoint is not None else None
+        self._device = device
+        self._segmentation_mode = segmentation_mode
+        self._is_tiled = is_tiled
+        self._tile_shape = tile_shape
+        self._halo = halo
+        self._batch_size = batch_size
+        self._min_size = min_size
+        self._verbose = verbose
+
+        if _microsam_get_predictor_and_segmenter is None:
+            raise ImportError(
+                "micro_sam is not installed. Install it with: "
+                "conda install -c conda-forge micro_sam"
+            )
+        self._predictor, self._segmenter = _microsam_get_predictor_and_segmenter(
+            model_type=model_type,
+            checkpoint=self._checkpoint,
+            device=device,
+            segmentation_mode=segmentation_mode,
+            is_tiled=is_tiled,
+        )
+
+    def predict(self, image: np.ndarray, **kwargs: Any) -> np.ndarray:
+        """Run micro-SAM automatic instance segmentation."""
+        if _microsam_automatic_instance_segmentation is None:
+            raise ImportError(
+                "micro_sam is not installed. Install it with: "
+                "conda install -c conda-forge micro_sam"
+            )
+
+        image_data = self._prepare_image(image)
+        tile_shape = kwargs.get("tile_shape", self._tile_shape)
+        halo = kwargs.get("halo", self._halo)
+        batch_size = kwargs.get("batch_size", self._batch_size)
+        verbose = kwargs.get("verbose", self._verbose)
+
+        generate_kwargs = self._generate_kwargs(kwargs)
+        labels = _microsam_automatic_instance_segmentation(
+            predictor=self._predictor,
+            segmenter=self._segmenter,
+            input_path=image_data,
+            ndim=2,
+            tile_shape=tile_shape,
+            halo=halo,
+            verbose=verbose,
+            batch_size=batch_size,
+            **generate_kwargs,
+        )
+        return np.asarray(labels).astype(np.int32)
+
+    def get_info(self) -> dict[str, Any]:
+        return {
+            "model_name": self._model_type,
+            "backend": "micro_sam",
+            "parameters": {
+                "model_type": self._model_type,
+                "checkpoint": self._checkpoint,
+                "device": self._device,
+                "segmentation_mode": self._segmentation_mode,
+                "is_tiled": self._is_tiled,
+                "tile_shape": self._tile_shape,
+                "halo": self._halo,
+                "batch_size": self._batch_size,
+                "min_size": self._min_size,
+                "verbose": self._verbose,
+            },
+        }
+
+    def get_default_params(self, project: dict[str, Any] | None) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "tile_shape": self._tile_shape,
+            "halo": self._halo,
+            "batch_size": self._batch_size,
+            "min_size": self._min_size,
+            "verbose": self._verbose,
+        }
+        if project is None:
+            return params
+
+        recommended_params = project.get("recommended_params") or {}
+        if isinstance(recommended_params, dict):
+            for key in ("tile_shape", "halo", "batch_size", "min_size"):
+                if key in recommended_params:
+                    params[key] = recommended_params[key]
+        return params
+
+    @staticmethod
+    def _prepare_image(image: np.ndarray) -> np.ndarray:
+        """Return a 2-D grayscale or HWC RGB image suitable for micro-SAM."""
+        if image.ndim == 2:
+            return image.astype(np.float32)
+        if image.ndim == 3 and image.shape[0] in (3, 4):
+            return np.moveaxis(image[:3], 0, -1).astype(np.float32)
+        if image.ndim == 3 and image.shape[-1] in (3, 4):
+            return image[..., :3].astype(np.float32)
+        if image.ndim == 3:
+            return image[0].astype(np.float32)
+        raise ValueError(f"Unsupported image shape for micro-SAM: {image.shape}")
+
+    def _generate_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Filter kwargs to options accepted by micro-SAM generators."""
+        supported_keys = {
+            "pred_iou_thresh",
+            "stability_score_thresh",
+            "box_nms_thresh",
+            "crop_nms_thresh",
+            "min_mask_region_area",
+            "with_background",
+            "center_distance_threshold",
+            "boundary_distance_threshold",
+            "foreground_threshold",
+            "foreground_smoothing",
+            "distance_smoothing",
+            "min_size",
+            "nms_threshold",
+            "intersection_over_min",
+            "mask_threshold",
+            "refine_with_box_prompts",
+            "optimize_memory",
+        }
+        generate_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in supported_keys and value is not None
+        }
+        generate_kwargs.setdefault("output_mode", "instance_segmentation")
+        generate_kwargs.setdefault("min_size", self._min_size)
+        return generate_kwargs
+
+
 # ── Model selection ────────────────────────────────────────────────────────────
+
 
 def select_segmenter(project: dict[str, Any] | None = None) -> Segmenter:
     """Choose and instantiate the best segmenter given a project config.
 
     Selection delegates to ``microagent.project.knowledge.recommend_model`` so
-    project initialization and segmentation use the same decision matrix.
+    project initialization and segmentation use the same decision matrix:
+    micro-SAM for EM/organelle targets when installed, StarDist for nuclei/H&E,
+    CellPose for whole-cell and fallback segmentation.
 
     Parameters
     ----------
@@ -402,8 +596,10 @@ def _instantiate_recommended_segmenter(
     allow_fallback: bool,
 ) -> Segmenter:
     """Instantiate a backend from recommendation params with optional fallback."""
-    backend = backend.lower()
+    backend = backend.lower().replace("-", "_")
     try:
+        if backend in ("micro_sam", "microsam"):
+            return _make_microsam(params)
         if backend == "stardist":
             return _make_stardist(params)
         if backend == "cellpose":
@@ -448,6 +644,31 @@ def _make_stardist(params: dict[str, Any] | None = None) -> StarDistSegmenter:
     )
 
 
+def _make_microsam(params: dict[str, Any] | None = None) -> MicroSamSegmenter:
+    params = dict(params or {})
+    return MicroSamSegmenter(
+        model_type=str(params.get("model_type", "vit_b_em_organelles")),
+        checkpoint=params.get("checkpoint"),
+        device=params.get("device"),
+        segmentation_mode=params.get("segmentation_mode"),
+        is_tiled=bool(params.get("is_tiled", False)),
+        tile_shape=_tuple2_or_none(params.get("tile_shape")),
+        halo=_tuple2_or_none(params.get("halo")),
+        batch_size=int(params.get("batch_size", 1)),
+        min_size=int(params.get("min_size", 25)),
+        verbose=bool(params.get("verbose", False)),
+    )
+
+
+def _tuple2_or_none(value: Any) -> tuple[int, int] | None:
+    """Normalize list/tuple tile parameters from project.yaml."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        return int(value[0]), int(value[1])
+    raise ValueError(f"Expected a pair of integers, got {value!r}")
+
+
 def _make_fallback_segmenter(
     project: dict[str, Any] | None,
     *,
@@ -458,8 +679,11 @@ def _make_fallback_segmenter(
         return _make_cellpose(project)
     if attempted_backend != "stardist" and _HAS_STARDIST:
         return _make_stardist()
+    if attempted_backend not in ("micro_sam", "microsam") and _HAS_MICROSAM:
+        return _make_microsam()
     raise RuntimeError(
-        "Neither cellpose nor stardist is installed. Install at least one backend."
+        "No segmentation backend is installed. Install cellpose, stardist, or "
+        "micro_sam (via conda-forge)."
     )
 
 
@@ -518,7 +742,8 @@ def run_segmentation(
     output_dir:
         Directory where mask TIFFs and metadata JSON will be written.
     model:
-        ``"auto"`` (select from project.yaml), ``"cellpose"``, or ``"stardist"``.
+        ``"auto"`` (select from project.yaml), ``"cellpose"``, ``"stardist"``,
+        or ``"micro_sam"``.
     project_path:
         Path to project.yaml. Parsed and passed to model selection / params.
     **kwargs:
@@ -555,10 +780,13 @@ def run_segmentation(
 
     # ── Instantiate segmenter ──────────────────────────────────────────────────
     segmenter: Segmenter
-    if model == "cellpose":
+    model_key = model.lower().replace("-", "_")
+    if model_key == "cellpose":
         segmenter = _make_cellpose(project)
-    elif model == "stardist":
+    elif model_key == "stardist":
         segmenter = _make_stardist()
+    elif model_key in ("micro_sam", "microsam"):
+        segmenter = _make_microsam(kwargs)
     else:
         segmenter = select_segmenter(project)
 

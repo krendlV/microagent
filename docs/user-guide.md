@@ -37,8 +37,9 @@ ground_truth_format: masks
 analysis_goal: segment
 data_dir: /data/hela_images
 gt_dir: /data/hela_gt
-recommended_model: 2D_versatile_fluo
+recommended_model: stardist
 recommended_params:
+  model_name: 2D_versatile_fluo
   prob_thresh: 0.479
   nms_thresh: 0.3
 ```
@@ -57,7 +58,7 @@ MicroAgent auto-selects a model when you run `microagent init`. Here's the logic
 
 | Sample/Modality | Recommended Model | Rationale |
 |----------------|-------------------|-----------|
-| Any EM | StarDist `2D_versatile_fluo` | Best for round nuclei in EM |
+| Any EM / organelles | micro-SAM `vit_b_em_organelles` | Tuned for EM organelle structures |
 | H&E tissue | StarDist `2D_versatile_he` | Trained on stained tissue |
 | Nuclei only (fluorescence) | StarDist `2D_versatile_fluo` | Optimized for round nuclei |
 | Phase contrast / brightfield | CellPose `cyto2` | Works without fluorescence |
@@ -70,6 +71,7 @@ Override the auto-selected model at any time:
 
 ```bash
 microagent segment /data/images --model stardist
+microagent segment /data/images --model micro_sam
 microagent segment /data/images --model cellpose --diameter 25
 ```
 
@@ -79,6 +81,7 @@ microagent segment /data/images --model cellpose --diameter 25
 - **cyto3** — better than cyto2 for fluorescence, good for multichannel images
 - **cpsam** — highest quality but requires GPU and is CC-BY-NC (non-commercial)
 - **StarDist** — best for circular/elliptical nuclei, fast, excellent for H&E
+- **micro-SAM** — best for EM/organelle targets; install with `conda install -c conda-forge micro_sam`
 
 ---
 

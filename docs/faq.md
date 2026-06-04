@@ -138,6 +138,8 @@ Then set `pretrained: cyto3` in your `project.yaml` to avoid `cpsam` entirely.
 | StarDist 2D_versatile_he | BSD-3-Clause | Yes |
 | micro-SAM | Apache-2.0 | Yes |
 
+micro-SAM is optional and distributed through conda-forge: `conda install -c conda-forge micro_sam`.
+
 ---
 
 ## Positioning

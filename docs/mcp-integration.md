@@ -140,7 +140,7 @@ Run cell segmentation.
 |------|------|----------|-------------|
 | `image_dir` | string | yes | Path to image directory |
 | `output_dir` | string | no | Output directory (default: `masks`) |
-| `model` | string | no | `auto`, `cellpose`, `stardist` (default: `auto`) |
+| `model` | string | no | `auto`, `cellpose`, `stardist`, `micro_sam` (default: `auto`) |
 | `diameter` | number | no | Cell diameter in pixels (CellPose; null = auto) |
 
 **Returns:** `{status, mask_paths, model_info, per_image_stats, elapsed_seconds}`

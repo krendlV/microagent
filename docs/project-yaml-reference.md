@@ -53,8 +53,9 @@ compute:
   ram_gb: 32.0                      # System RAM in GB
 
 # ── Model Selection (auto-populated by init) ──────────────
-recommended_model: "2D_versatile_fluo"
+recommended_model: stardist
 recommended_params:
+  model_name: "2D_versatile_fluo"
   prob_thresh: 0.479
   nms_thresh: 0.3
 ```
@@ -132,7 +133,7 @@ List of biological structures to segment. Examples:
 ```
 What is your modality?
 │
-├── EM ──────────────────────────────► StarDist 2D_versatile_fluo
+├── EM / organelles ────────────────► micro-SAM vit_b_em_organelles
 │
 ├── H&E ─────────────────────────────► StarDist 2D_versatile_he
 │

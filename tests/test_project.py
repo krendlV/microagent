@@ -116,20 +116,62 @@ def test_project_defaults(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "overrides,expected_model,expected_param_key,expected_param_value",
     [
-        # EM → stardist versatile_fluo
-        ({"modality": "EM", "structures": ["whole_cells"]}, "stardist", "model_name", "2D_versatile_fluo"),
+        # EM → micro-SAM organelle/EM model
+        (
+            {"modality": "EM", "structures": ["whole_cells"]},
+            "micro_sam",
+            "model_type",
+            "vit_b_em_organelles",
+        ),
+        # organelles → micro-SAM organelle/EM model
+        (
+            {"modality": "fluorescence", "structures": ["organelles"]},
+            "micro_sam",
+            "model_type",
+            "vit_b_em_organelles",
+        ),
         # H&E → stardist versatile_he
-        ({"modality": "H&E", "structures": ["nuclei"]}, "stardist", "model_name", "2D_versatile_he"),
+        (
+            {"modality": "H&E", "structures": ["nuclei"]},
+            "stardist",
+            "model_name",
+            "2D_versatile_he",
+        ),
         # nuclei only → stardist versatile_fluo
-        ({"modality": "fluorescence", "structures": ["nuclei"]}, "stardist", "model_name", "2D_versatile_fluo"),
+        (
+            {"modality": "fluorescence", "structures": ["nuclei"]},
+            "stardist",
+            "model_name",
+            "2D_versatile_fluo",
+        ),
         # phase_contrast → cellpose cyto2
-        ({"modality": "phase_contrast", "structures": ["whole_cells"]}, "cellpose", "model_name", "cyto2"),
+        (
+            {"modality": "phase_contrast", "structures": ["whole_cells"]},
+            "cellpose",
+            "model_name",
+            "cyto2",
+        ),
         # brightfield → cellpose cyto2
-        ({"modality": "brightfield", "structures": ["whole_cells"]}, "cellpose", "model_name", "cyto2"),
+        (
+            {"modality": "brightfield", "structures": ["whole_cells"]},
+            "cellpose",
+            "model_name",
+            "cyto2",
+        ),
         # confocal + whole_cells → cellpose cpsam
-        ({"modality": "confocal", "structures": ["whole_cells"]}, "cellpose", "model_name", "cpsam"),
+        (
+            {"modality": "confocal", "structures": ["whole_cells"]},
+            "cellpose",
+            "model_name",
+            "cpsam",
+        ),
         # fluorescence + whole_cells → cellpose cyto3
-        ({"modality": "fluorescence", "structures": ["whole_cells"]}, "cellpose", "model_name", "cyto3"),
+        (
+            {"modality": "fluorescence", "structures": ["whole_cells"]},
+            "cellpose",
+            "model_name",
+            "cyto3",
+        ),
         # low VRAM → cellpose cyto2
         (
             {
@@ -161,8 +203,8 @@ def test_recommend_model_updates_project() -> None:
     model, params = recommend_model(project)
     project.recommended_model = model
     project.recommended_params = params
-    assert project.recommended_model == "stardist"
-    assert project.recommended_params["model_name"] == "2D_versatile_fluo"
+    assert project.recommended_model == "micro_sam"
+    assert project.recommended_params["model_type"] == "vit_b_em_organelles"
 
 
 # ── test_auto_detect ──────────────────────────────────────────────────────────

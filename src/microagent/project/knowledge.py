@@ -282,7 +282,7 @@ def recommend_model_from_properties(
     """Select the best segmentation model from normalized project properties.
 
     Decision matrix (Section 3.3):
-    - EM → stardist 2D_versatile_fluo
+    - EM / organelles → micro_sam vit_b_em_organelles
     - H&E → stardist 2D_versatile_he
     - Nuclei only → stardist 2D_versatile_fluo
     - phase_contrast / brightfield → cellpose cyto2
@@ -294,11 +294,11 @@ def recommend_model_from_properties(
     modality = modality.lower()
     structures = [s.lower() for s in structures]
 
-    if modality == "em":
-        return "stardist", {
-            "model_name": "2D_versatile_fluo",
-            "prob_thresh": 0.5,
-            "nms_thresh": 0.4,
+    if modality == "em" or "organelles" in structures:
+        return "micro_sam", {
+            "model_type": "vit_b_em_organelles",
+            "segmentation_mode": "auto",
+            "min_size": 25,
         }
 
     if modality == "h&e":

@@ -84,7 +84,7 @@ microagent segment <image_dir> [OPTIONS]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--output`, `-o` | PATH | `masks/` | Output directory for mask TIFFs |
-| `--model`, `-m` | TEXT | `auto` | Model: `auto`, `cellpose`, `stardist` |
+| `--model`, `-m` | TEXT | `auto` | Model: `auto`, `cellpose`, `stardist`, `micro_sam` |
 | `--diameter` | FLOAT | None | Cell diameter in pixels (CellPose; None = auto-detect) |
 | `--project`, `-p` | PATH | — | Path to `project.yaml` |
 

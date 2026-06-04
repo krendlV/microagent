@@ -79,7 +79,7 @@ src/microagent/
 | `cpsam` | CellPose-SAM | General purpose (default) | **CC-BY-NC** |
 | `2D_versatile_fluo` | StarDist | Fluorescence nuclei | BSD-3-Clause |
 | `2D_versatile_he` | StarDist | H&E tissue nuclei | BSD-3-Clause |
-| micro-SAM | Segment Anything | Large/irregular objects | Apache-2.0 |
+| `micro_sam` | micro-SAM | EM / organelles / large irregular objects | Apache-2.0 |
 
 > **License note:** MicroAgent source code is BSD-3-Clause. The `cpsam` model weights are released under **CC-BY-NC**—they may not be used for commercial purposes. If you need commercial use, switch to `cyto3` or `2D_versatile_fluo`.
 
@@ -112,6 +112,7 @@ pip install "microagent[stardist]"                     # + StarDist
 pip install "microagent[tracking]"                     # + Optuna + MLflow
 pip install "microagent[mcp]"                          # + MCP server
 pip install "microagent[stardist,tracking,mcp]"        # recommended full install
+conda install -c conda-forge micro_sam                 # optional micro-SAM backend
 ```
 
 Requires **Python ≥ 3.10**. GPU is optional but recommended for datasets larger than ~100 images.

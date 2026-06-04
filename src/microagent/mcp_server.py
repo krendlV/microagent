@@ -46,7 +46,7 @@ def segment(
     model: str = "auto",
     diameter: int | None = None,
 ) -> dict[str, Any]:
-    """Run segmentation on microscopy images. Models: auto, cellpose, stardist.
+    """Run segmentation on microscopy images. Models: auto, cellpose, stardist, micro_sam.
     Returns mask paths, cell counts, and model info."""
     try:
         from microagent.core.segment import run_segmentation

@@ -78,7 +78,7 @@ class Segmenter(ABC):
     def get_default_params(self, project: ProjectConfig) -> dict: ...
 ```
 
-`CellPoseSegmenter` and `StarDistSegmenter` both implement this interface. Adding a new backend requires only implementing these three methods — no changes elsewhere.
+`CellPoseSegmenter`, `StarDistSegmenter`, and `MicroSamSegmenter` implement this interface. Adding a new backend requires only implementing these three methods and wiring it into model selection.
 
 ### Typed dataclass results
 
@@ -94,7 +94,7 @@ except ImportError:
     HAS_STARDIST = False
 ```
 
-The core package works without StarDist, Optuna, or MCP installed. Features degrade gracefully with clear error messages.
+The core package works without StarDist, micro-SAM, Optuna, or MCP installed. Features degrade gracefully with clear error messages. micro-SAM is installed separately with `conda install -c conda-forge micro_sam`.
 
 ### Project-driven configuration
 

@@ -82,9 +82,10 @@ class TestCellPoseSegmenter:
         """get_info() returns required keys without model download."""
         from unittest.mock import MagicMock, patch
 
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models"
-        ) as mock_models:
+        with (
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models") as mock_models,
+        ):
             mock_models.CellposeModel.return_value = MagicMock()
             from importlib import reload
             import microagent.core.segment as seg_mod
@@ -106,9 +107,10 @@ class TestCellPoseSegmenter:
         """get_default_params(None) returns sensible defaults."""
         from unittest.mock import MagicMock, patch
 
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models"
-        ) as mock_models:
+        with (
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models") as mock_models,
+        ):
             mock_models.CellposeModel.return_value = MagicMock()
             import microagent.core.segment as seg_mod
 
@@ -134,9 +136,10 @@ class TestCellPoseSegmenter:
                 "channels": {"nucleus": 1, "cytoplasm": 0},
             }
         }
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models"
-        ) as mock_models:
+        with (
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models") as mock_models,
+        ):
             mock_models.CellposeModel.return_value = MagicMock()
             import microagent.core.segment as seg_mod
 
@@ -170,15 +173,100 @@ class TestCellPoseSegmenter:
         seg._cellprob_threshold = 0.0
         seg._channels = [0, 1]
 
-        with patch("microagent.core.cellpose_compat.version", return_value="4.0.9"), patch(
-            "microagent.core.cellpose_compat.console.print"
-        ) as warn:
+        with (
+            patch("microagent.core.cellpose_compat.version", return_value="4.0.9"),
+            patch("microagent.core.cellpose_compat.console.print") as warn,
+        ):
             mask = seg.predict(np.zeros((16, 16), dtype=np.uint16))
 
         assert mask.dtype == np.int32
         warn.assert_called_once()
         assert "channels argument" in warn.call_args.args[0]
         assert "channels" not in cellpose_model.eval.call_args.kwargs
+
+
+# ── Unit tests for MicroSamSegmenter ──────────────────────────────────────────
+
+
+class TestMicroSamSegmenter:
+    def test_raises_import_error_when_not_installed(self) -> None:
+        """MicroSamSegmenter raises ImportError with conda-forge install guidance."""
+        from unittest.mock import patch
+
+        with patch("microagent.core.segment._HAS_MICROSAM", False):
+            import microagent.core.segment as seg_mod
+
+            with pytest.raises(ImportError, match="conda-forge"):
+                seg_mod.MicroSamSegmenter()
+
+    def test_get_info_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """get_info() returns required keys without downloading a model."""
+        import microagent.core.segment as seg_mod
+
+        monkeypatch.setattr(seg_mod, "_HAS_MICROSAM", True)
+        monkeypatch.setattr(
+            seg_mod,
+            "_microsam_get_predictor_and_segmenter",
+            lambda **_kwargs: (object(), object()),
+        )
+
+        seg = seg_mod.MicroSamSegmenter(
+            model_type="vit_b_em_organelles",
+            segmentation_mode="auto",
+            batch_size=2,
+        )
+        info = seg.get_info()
+
+        assert info["backend"] == "micro_sam"
+        assert info["model_name"] == "vit_b_em_organelles"
+        assert info["parameters"]["segmentation_mode"] == "auto"
+        assert info["parameters"]["batch_size"] == 2
+
+    def test_predict_returns_int32_mask(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """predict() calls micro-SAM automatic segmentation and returns int32 labels."""
+        from unittest.mock import MagicMock
+
+        import microagent.core.segment as seg_mod
+
+        predictor = object()
+        segmenter = object()
+        auto_seg = MagicMock(return_value=np.ones((16, 16), dtype=np.uint16))
+
+        monkeypatch.setattr(seg_mod, "_HAS_MICROSAM", True)
+        monkeypatch.setattr(
+            seg_mod,
+            "_microsam_get_predictor_and_segmenter",
+            lambda **_kwargs: (predictor, segmenter),
+        )
+        monkeypatch.setattr(seg_mod, "_microsam_automatic_instance_segmentation", auto_seg)
+
+        seg = seg_mod.MicroSamSegmenter(tile_shape=(8, 8), halo=(2, 2), min_size=5)
+        mask = seg.predict(np.zeros((16, 16), dtype=np.uint16), batch_size=3)
+
+        assert mask.dtype == np.int32
+        assert mask.shape == (16, 16)
+        assert auto_seg.call_args.kwargs["predictor"] is predictor
+        assert auto_seg.call_args.kwargs["segmenter"] is segmenter
+        assert auto_seg.call_args.kwargs["tile_shape"] == (8, 8)
+        assert auto_seg.call_args.kwargs["halo"] == (2, 2)
+        assert auto_seg.call_args.kwargs["batch_size"] == 3
+        assert auto_seg.call_args.kwargs["min_size"] == 5
+
+    def test_installed_micro_sam_import_smoke(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Skip unless micro_sam is installed, then smoke-test construction with fakes."""
+        pytest.importorskip("micro_sam")
+
+        import microagent.core.segment as seg_mod
+
+        monkeypatch.setattr(seg_mod, "_HAS_MICROSAM", True)
+        monkeypatch.setattr(
+            seg_mod,
+            "_microsam_get_predictor_and_segmenter",
+            lambda **_kwargs: (object(), object()),
+        )
+
+        seg = seg_mod.MicroSamSegmenter(model_type="vit_b_em_organelles")
+        assert seg.get_info()["backend"] == "micro_sam"
 
 
 # ── Model selection ────────────────────────────────────────────────────────────
@@ -189,9 +277,10 @@ class TestSelectSegmenter:
         """select_segmenter(None) returns CellPoseSegmenter when cellpose is available."""
         from unittest.mock import MagicMock, patch
 
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models"
-        ) as mock_cp:
+        with (
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models") as mock_cp,
+        ):
             mock_cp.CellposeModel.return_value = MagicMock()
             import microagent.core.segment as seg_mod
             from importlib import reload
@@ -211,8 +300,9 @@ class TestSelectSegmenter:
 
         mock_sd_cls = MagicMock()
         mock_sd_cls.from_pretrained.return_value = MagicMock()
-        with patch("microagent.core.segment._HAS_STARDIST", True), patch(
-            "microagent.core.segment._StarDist2D", mock_sd_cls
+        with (
+            patch("microagent.core.segment._HAS_STARDIST", True),
+            patch("microagent.core.segment._StarDist2D", mock_sd_cls),
         ):
             result = seg_mod.select_segmenter(project)
         assert result.__class__.__name__ == "StarDistSegmenter"
@@ -262,9 +352,10 @@ class TestSelectSegmenter:
         from unittest.mock import MagicMock, patch
 
         project = {"imaging": {"segmentation_target": "whole_cells", "staining": "fluorescence"}}
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models"
-        ) as mock_cp:
+        with (
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models") as mock_cp,
+        ):
             mock_cp.CellposeModel.return_value = MagicMock()
             import microagent.core.segment as seg_mod
 
@@ -273,6 +364,59 @@ class TestSelectSegmenter:
             result = seg_mod.select_segmenter(project)
         assert result.__class__.__name__ == "CellPoseSegmenter"
         assert result._model_name == "cyto3"
+
+    def test_em_prefers_microsam_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """EM projects select micro-SAM when the optional backend is installed."""
+        import microagent.core.segment as seg_mod
+
+        project = {"modality": "EM", "structures": ["whole_cells"]}
+        monkeypatch.setattr(seg_mod, "_HAS_MICROSAM", True)
+        monkeypatch.setattr(
+            seg_mod,
+            "_microsam_get_predictor_and_segmenter",
+            lambda **_kwargs: (object(), object()),
+        )
+
+        result = seg_mod.select_segmenter(project)
+
+        assert result.__class__.__name__ == "MicroSamSegmenter"
+        assert result._model_type == "vit_b_em_organelles"
+
+    def test_organelles_prefer_microsam_when_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Organelle targets select micro-SAM when the optional backend is installed."""
+        import microagent.core.segment as seg_mod
+
+        project = {"modality": "fluorescence", "structures": ["organelles"]}
+        monkeypatch.setattr(seg_mod, "_HAS_MICROSAM", True)
+        monkeypatch.setattr(
+            seg_mod,
+            "_microsam_get_predictor_and_segmenter",
+            lambda **_kwargs: (object(), object()),
+        )
+
+        result = seg_mod.select_segmenter(project)
+
+        assert result.__class__.__name__ == "MicroSamSegmenter"
+
+    def test_em_falls_back_to_cellpose_when_no_microsam(self) -> None:
+        """EM/organelle micro-SAM recommendations fall back to CellPose cpsam if absent."""
+        from unittest.mock import MagicMock, patch
+
+        project = {"modality": "EM", "structures": ["whole_cells"]}
+        with (
+            patch("microagent.core.segment._HAS_MICROSAM", False),
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models") as mock_cp,
+        ):
+            mock_cp.CellposeModel.return_value = MagicMock()
+            import microagent.core.segment as seg_mod
+
+            result = seg_mod.select_segmenter(project)
+
+        assert result.__class__.__name__ == "CellPoseSegmenter"
+        assert result._model_name == "cpsam"
 
     def test_he_falls_back_to_cellpose_when_no_stardist(self) -> None:
         """Nuclei + H&E falls back to CellPose when StarDist is not installed."""
@@ -347,8 +491,9 @@ class TestRunSegmentation:
         stardist_cls = MagicMock()
         stardist_cls.from_pretrained.return_value = stardist_model
 
-        with patch("microagent.core.segment._HAS_STARDIST", True), patch(
-            "microagent.core.segment._StarDist2D", stardist_cls
+        with (
+            patch("microagent.core.segment._HAS_STARDIST", True),
+            patch("microagent.core.segment._StarDist2D", stardist_cls),
         ):
             result = run_segmentation(
                 single_image_dir,
@@ -392,8 +537,9 @@ class TestRunSegmentation:
         cellpose_mod = MagicMock()
         cellpose_mod.CellposeModel.return_value = cellpose_model
 
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models", cellpose_mod
+        with (
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models", cellpose_mod),
         ):
             result = run_segmentation(
                 single_image_dir,
@@ -440,8 +586,9 @@ class TestRunSegmentation:
         cellpose_mod = MagicMock()
         cellpose_mod.CellposeModel.return_value = cellpose_model
 
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models", cellpose_mod
+        with (
+            patch("microagent.core.segment._HAS_CELLPOSE", True),
+            patch("microagent.core.segment._cp_models", cellpose_mod),
         ):
             result = run_segmentation(
                 single_image_dir,
@@ -453,6 +600,37 @@ class TestRunSegmentation:
         assert result.model_info["model_name"] == "cyto2"
         assert result.parameters["diameter"] == 42
         assert cellpose_model.eval.call_args.kwargs["diameter"] == 42
+
+    def test_explicit_microsam_backend_runs_with_mock(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """run_segmentation supports explicit micro_sam backend selection."""
+        import microagent.core.segment as seg_mod
+
+        monkeypatch.setattr(seg_mod, "_HAS_MICROSAM", True)
+        monkeypatch.setattr(
+            seg_mod,
+            "_microsam_get_predictor_and_segmenter",
+            lambda **_kwargs: (object(), object()),
+        )
+        monkeypatch.setattr(
+            seg_mod,
+            "_microsam_automatic_instance_segmentation",
+            lambda **_kwargs: np.ones((256, 256), dtype=np.int32),
+        )
+
+        result = seg_mod.run_segmentation(
+            single_image_dir,
+            tmp_path / "masks",
+            model="micro_sam",
+            min_size=7,
+        )
+
+        assert result.model_info["backend"] == "micro_sam"
+        assert result.parameters["min_size"] == 7
 
     @pytest.mark.slow
     def test_produces_tiff_masks(self, multi_image_dir: Path, tmp_path: Path) -> None:

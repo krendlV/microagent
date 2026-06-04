@@ -171,7 +171,7 @@ def segment(
         "auto",
         "--model",
         "-m",
-        help="Model backend: auto, cellpose, or stardist",
+        help="Model backend: auto, cellpose, stardist, or micro_sam",
     ),
     diameter: int | None = typer.Option(
         None,

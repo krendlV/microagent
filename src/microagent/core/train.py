@@ -143,6 +143,7 @@ def _load_tiff(path: Path) -> np.ndarray:
 
 _IMAGE_EXTS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".npy"}
 _MASK_SUFFIXES = ("_masks", "_mask", "_labels", "_label", "_seg")
+MIN_TRAIN_MASKS = 5
 
 
 def _find_image_mask_pairs(
@@ -297,6 +298,11 @@ def _load_cellpose_dataset(
     return images, masks
 
 
+def _count_nonzero_labels(mask: np.ndarray) -> int:
+    """Count distinct labelled objects in a mask, excluding background."""
+    return int(np.count_nonzero(np.unique(mask)))
+
+
 def train_cellpose(config: TrainConfig) -> TrainResult:
     """Fine-tune a CellPose model using the provided configuration.
 
@@ -337,6 +343,16 @@ def train_cellpose(config: TrainConfig) -> TrainResult:
             f"No image/mask pairs found in {train_dir!r} "
             f"(image_filter={config.image_filter!r}, mask_filter={config.mask_filter!r})"
         )
+    sparse_train_images = sum(
+        _count_nonzero_labels(mask) < MIN_TRAIN_MASKS for mask in train_masks
+    )
+    if sparse_train_images == len(train_masks):
+        raise ValueError(
+            "CellPose requires at least "
+            f"{MIN_TRAIN_MASKS} labelled objects per image; "
+            f"{sparse_train_images} of {len(train_masks)} training images were "
+            f"too sparse (<{MIN_TRAIN_MASKS} objects)."
+        )
 
     # Load test data if available
     test_images: list[np.ndarray] = []
@@ -371,7 +387,7 @@ def train_cellpose(config: TrainConfig) -> TrainResult:
         batch_size=config.batch_size,
     )
     if "min_train_masks" in inspect.signature(cp_train.train_seg).parameters:
-        train_kwargs["min_train_masks"] = 1
+        train_kwargs["min_train_masks"] = MIN_TRAIN_MASKS
 
     try:
         # cellpose >= 3: train_seg returns (path, train_losses, test_losses)

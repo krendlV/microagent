@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -14,13 +15,12 @@ from skimage import measure
 
 
 def _make_img(seed: int = 0, shape: tuple[int, int] = (64, 64)) -> np.ndarray:
-    """Return a (H, W) uint16 image with a few filled circles."""
+    """Return a (H, W) uint16 image with labelled-object-like spots."""
     rng = np.random.default_rng(seed)
     img = np.zeros(shape, dtype=np.uint16)
-    for _ in range(3):
-        cy = int(rng.integers(10, shape[0] - 10))
-        cx = int(rng.integers(10, shape[1] - 10))
-        r = int(rng.integers(5, 12))
+    centers = ((12, 12), (12, 32), (12, 52), (34, 12), (34, 32), (34, 52))
+    for cy, cx in centers:
+        r = int(rng.integers(4, 7))
         yy, xx = np.ogrid[: shape[0], : shape[1]]
         img[(yy - cy) ** 2 + (xx - cx) ** 2 <= r**2] = int(
             rng.integers(10000, 40000)
@@ -32,6 +32,14 @@ def _make_mask(img: np.ndarray) -> np.ndarray:
     """Connected-component label mask derived from *img*."""
     threshold = int(np.iinfo(np.uint16).max) * 0.1
     return measure.label(img > threshold).astype(np.uint16)
+
+
+def _write_cellpose_pair(data_dir: Path, stem: str, mask: np.ndarray) -> None:
+    """Write a minimal CellPose image/mask pair."""
+    img = np.zeros(mask.shape, dtype=np.uint16)
+    img[mask > 0] = 20000
+    tifffile.imwrite(data_dir / f"{stem}_img.tif", img)
+    tifffile.imwrite(data_dir / f"{stem}_masks.tif", mask.astype(np.uint16))
 
 
 @pytest.fixture
@@ -207,3 +215,37 @@ def test_train_smoke(raw_dirs: tuple[Path, Path], tmp_path: Path) -> None:
     assert result.elapsed_seconds > 0
     assert result.best_epoch >= 0
     assert result.config_used is cfg
+
+
+def test_train_cellpose_rejects_all_sparse_masks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """train_cellpose should fail clearly before CellPose sees sparse masks."""
+    import sys
+
+    from microagent.core import train as train_module
+    from microagent.core.train import TrainConfig, train_cellpose
+
+    fake_cellpose = ModuleType("cellpose")
+    fake_cellpose.models = SimpleNamespace()
+    fake_cellpose.train = SimpleNamespace()
+    monkeypatch.setitem(sys.modules, "cellpose", fake_cellpose)
+    monkeypatch.setattr(train_module, "_HAS_CELLPOSE", True)
+
+    train_dir = tmp_path / "train"
+    train_dir.mkdir()
+    sparse_mask = np.zeros((32, 32), dtype=np.uint16)
+    sparse_mask[8:16, 8:16] = 1
+    for i in range(3):
+        _write_cellpose_pair(train_dir, f"sparse_{i}", sparse_mask)
+
+    cfg = TrainConfig(train_dir=train_dir, n_epochs=1, save_dir=tmp_path / "models")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"CellPose requires at least 5 labelled objects per image; "
+            r"3 of 3 training images were too sparse"
+        ),
+    ):
+        train_cellpose(cfg)

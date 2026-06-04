@@ -7,27 +7,15 @@ import random
 import shutil
 import time
 from dataclasses import dataclass, field
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
 from microagent.core.cellpose_compat import cellpose_model_kwargs
 
-try:
-    import tifffile as _tifffile
-
-    _HAS_TIFFFILE = True
-except ImportError:
-    _HAS_TIFFFILE = False
-
-try:
-    from cellpose import models as _cp_models
-    from cellpose import train as _cp_train
-
-    _HAS_CELLPOSE = True
-except ImportError:
-    _HAS_CELLPOSE = False
+_HAS_TIFFFILE = find_spec("tifffile") is not None
+_HAS_CELLPOSE = find_spec("cellpose") is not None
 
 
 # ── Dataclasses ────────────────────────────────────────────────────────────────
@@ -69,7 +57,7 @@ class TrainConfig:
     model: str = "cellpose"
     pretrained: str = "cpsam"
     train_dir: Path = field(default_factory=lambda: Path("train"))
-    test_dir: Optional[Path] = None
+    test_dir: Path | None = None
     learning_rate: float = 1e-5
     weight_decay: float = 0.1
     n_epochs: int = 100
@@ -182,7 +170,7 @@ def prepare_data(
     gt_dir: Path,
     test_split: float = 0.2,
     seed: int = 42,
-    output_root: Optional[Path] = None,
+    output_root: Path | None = None,
 ) -> tuple[Path, Path]:
     """Organise images and masks into CellPose-compatible train/test directories.
 
@@ -284,7 +272,9 @@ def _load_cellpose_dataset(
         (images, masks) — parallel lists.
     """
     img_files = sorted(
-        f for f in data_dir.iterdir() if image_filter in f.stem and f.suffix.lower() in {".tif", ".tiff"}
+        f
+        for f in data_dir.iterdir()
+        if image_filter in f.stem and f.suffix.lower() in {".tif", ".tiff"}
     )
     images: list[np.ndarray] = []
     masks: list[np.ndarray] = []
@@ -438,7 +428,7 @@ def train_cellpose(config: TrainConfig) -> TrainResult:
 # ── Post-training validation ───────────────────────────────────────────────────
 
 
-def validate_model(model_path: Path, test_dir: Path) -> "EvaluationResult":  # noqa: F821
+def validate_model(model_path: Path, test_dir: Path) -> EvaluationResult:  # noqa: F821
     """Run inference with a fine-tuned model on *test_dir* and evaluate.
 
     Parameters
@@ -487,10 +477,7 @@ def validate_model(model_path: Path, test_dir: Path) -> "EvaluationResult":  # n
         for img_path in img_files:
             img = _load_tiff(img_path)
             # Ensure 2-D for CellPose
-            if img.ndim == 3:
-                img_2d = img[0] if img.shape[0] <= 4 else img[:, :, 0]
-            else:
-                img_2d = img
+            img_2d = (img[0] if img.shape[0] <= 4 else img[:, :, 0]) if img.ndim == 3 else img
             masks, _, _ = model.eval(img_2d, diameter=None, channels=[0, 0])
             stem_base = img_path.stem.replace("_img", "")
             _save_tiff(masks.astype(np.uint16), pred_dir / f"{stem_base}_masks.tif")

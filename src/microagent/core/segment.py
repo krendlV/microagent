@@ -169,6 +169,52 @@ class CellPoseSegmenter(Segmenter):
         self._gpu = gpu
         self._model = _cp_models.CellposeModel(gpu=gpu, pretrained_model=model_name)
 
+    @classmethod
+    def from_project(
+        cls,
+        project: dict[str, Any] | None,
+        params: dict[str, Any] | None = None,
+    ) -> CellPoseSegmenter:
+        """Construct a CellPose segmenter with project-derived defaults applied."""
+        input_params = dict(params or {})
+        resolved: dict[str, Any] = {
+            "model_name": str(input_params.get("model_name", "cpsam")),
+            "diameter": input_params.get("diameter"),
+            "flow_threshold": input_params.get("flow_threshold", 0.4),
+            "cellprob_threshold": input_params.get("cellprob_threshold", 0.0),
+            "channels": input_params.get("channels"),
+            "gpu": input_params.get("gpu", True),
+        }
+        return cls(**cls._with_project_defaults(resolved, project))
+
+    @staticmethod
+    def _with_project_defaults(
+        params: dict[str, Any],
+        project: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Return params overlaid with CellPose defaults from project.yaml."""
+        if project is None:
+            return params
+
+        imaging = project.get("imaging", {})
+        if not isinstance(imaging, dict):
+            return params
+
+        resolved = dict(params)
+        if "cell_diameter_pixels" in imaging:
+            resolved["diameter"] = int(imaging["cell_diameter_pixels"])
+
+        ch_map = imaging.get("channels", {})
+        if isinstance(ch_map, dict):
+            nucleus_ch = ch_map.get("nucleus")
+            cyto_ch = ch_map.get("cytoplasm")
+            if nucleus_ch is not None and cyto_ch is not None:
+                resolved["channels"] = [int(cyto_ch), int(nucleus_ch)]
+            elif nucleus_ch is not None:
+                resolved["channels"] = [0, int(nucleus_ch)]
+
+        return resolved
+
     def predict(self, image: np.ndarray, **kwargs: Any) -> np.ndarray:
         """Run CellPose inference.
 
@@ -227,22 +273,7 @@ class CellPoseSegmenter(Segmenter):
             "channels": self._channels,
             "gpu": getattr(self, "_gpu", True),
         }
-        if project is None:
-            return params
-
-        imaging = project.get("imaging", {})
-        # Honour per-project diameter if present
-        if "cell_diameter_pixels" in imaging:
-            params["diameter"] = int(imaging["cell_diameter_pixels"])
-        # Map channel config: {nucleus: 0, cytoplasm: 1} → [cyto, nucleus]
-        ch_map = imaging.get("channels", {})
-        nucleus_ch = ch_map.get("nucleus", None)
-        cyto_ch = ch_map.get("cytoplasm", None)
-        if nucleus_ch is not None and cyto_ch is not None:
-            params["channels"] = [int(cyto_ch), int(nucleus_ch)]
-        elif nucleus_ch is not None:
-            params["channels"] = [0, int(nucleus_ch)]
-        return params
+        return self._with_project_defaults(params, project)
 
 
 # ── StarDist backend ───────────────────────────────────────────────────────────
@@ -615,23 +646,7 @@ def _make_cellpose(
     project: dict[str, Any] | None,
     params: dict[str, Any] | None = None,
 ) -> CellPoseSegmenter:
-    params = dict(params or {})
-    model_name = str(params.pop("model_name", "cpsam"))
-    seg = CellPoseSegmenter(
-        model_name=model_name,
-        diameter=params.get("diameter"),
-        flow_threshold=params.get("flow_threshold", 0.4),
-        cellprob_threshold=params.get("cellprob_threshold", 0.0),
-        channels=params.get("channels"),
-        gpu=params.get("gpu", True),
-    )
-    default_params = seg.get_default_params(project)
-    seg._diameter = default_params.get("diameter")
-    seg._flow_threshold = default_params.get("flow_threshold", 0.4)
-    seg._cellprob_threshold = default_params.get("cellprob_threshold", 0.0)
-    seg._channels = default_params.get("channels", [0, 0])
-    seg._gpu = default_params.get("gpu", True)
-    return seg
+    return CellPoseSegmenter.from_project(project, params)
 
 
 def _make_stardist(params: dict[str, Any] | None = None) -> StarDistSegmenter:
@@ -830,8 +845,8 @@ def run_segmentation(
         per_image_stats=per_image_stats,
     )
 
-    # Save metadata JSON alongside masks
-    meta_path = output_dir / "segmentation_metadata.json"
+    # Save segmentation result JSON alongside masks.
+    meta_path = output_dir / "segmentation.json"
     result.save_json(meta_path)
 
     return result

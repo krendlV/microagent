@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import shlex
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import typer
 from rich.box import SIMPLE_HEAD
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -86,12 +88,12 @@ def _print_logged_run(results: dict[str, Any] | None) -> None:
 @app.command()
 def inspect(
     directory: Path = typer.Argument(..., help="Directory containing images to inspect"),
-    channels: Optional[str] = typer.Option(
+    channels: str | None = typer.Option(
         None,
         "--channels",
         help="Comma-separated channel indices to analyse, e.g. 0,1",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output",
         "-o",
@@ -107,7 +109,7 @@ def inspect(
             ch_list = [int(c.strip()) for c in channels.split(",")]
         except ValueError:
             console.print(f"[bold red]Invalid --channels value:[/bold red] {channels}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
     with console.status(f"[bold green]Inspecting {directory} …"):
         report = inspect_directory(directory, channels=ch_list)
@@ -286,7 +288,12 @@ def train(
     weight_decay: float = typer.Option(0.1, "--weight-decay", help="Weight decay"),
     pretrained: str = typer.Option("cpsam", "--pretrained", help="Pretrained model name"),
     test_split: float = typer.Option(0.2, "--test-split", help="Fraction reserved for test set"),
-    output: Path = typer.Option(Path("models"), "--output", "-o", help="Directory to save trained model"),
+    output: Path = typer.Option(
+        Path("models"),
+        "--output",
+        "-o",
+        help="Directory to save trained model",
+    ),
     seed: int = typer.Option(42, "--seed", help="Random seed for reproducibility"),
 ) -> None:
     """Fine-tune a CellPose model on labelled microscopy images."""
@@ -335,9 +342,7 @@ def train(
     )
 
     # ── Train ─────────────────────────────────────────────────────────────────
-    from rich.live import Live
     from rich.progress import BarColumn, Progress, SpinnerColumn, TimeElapsedColumn
-    from rich.table import Table
 
     progress = Progress(
         SpinnerColumn(),
@@ -409,8 +414,17 @@ def optimize(
     image_dir: Path = typer.Argument(..., help="Directory containing images"),
     gt_dir: Path = typer.Argument(..., help="Directory containing ground-truth masks"),
     trials: int = typer.Option(20, "--trials", "-n", help="Number of Optuna trials"),
-    metric: str = typer.Option("f1", "--metric", help="Metric to optimise: f1, mean_f1, pq, precision, recall"),
-    model: str = typer.Option("auto", "--model", "-m", help="Backend: auto, cellpose, or stardist"),
+    metric: str = typer.Option(
+        "f1",
+        "--metric",
+        help="Metric to optimise: f1, mean_f1, pq, precision, recall",
+    ),
+    model: str = typer.Option(
+        "auto",
+        "--model",
+        "-m",
+        help="Backend: auto, cellpose, or stardist",
+    ),
     iou: float = typer.Option(0.5, "--iou", help="IoU threshold for F1/precision/recall"),
     seed: int = typer.Option(42, "--seed", help="Random seed"),
     project: Path | None = typer.Option(None, "--project", "-p", help="Path to project.yaml"),
@@ -421,9 +435,6 @@ def optimize(
     ),
 ) -> None:
     """Optimise segmentation hyperparameters with Optuna TPE search."""
-    from rich.live import Live
-    from rich.table import Table
-
     from microagent.core.optimize import OptimizeConfig, run_optimization
 
     params = _serializable_params(
@@ -460,7 +471,9 @@ def optimize(
             if rec.value > best_so_far:
                 best_so_far = rec.value
             param_str = "  ".join(f"{k}={v:.3g}" for k, v in rec.params.items())
-            score_style = "green" if rec.value >= 0.7 else ("yellow" if rec.value >= 0.4 else "red")
+            score_style = (
+                "green" if rec.value >= 0.7 else ("yellow" if rec.value >= 0.4 else "red")
+            )
             tbl.add_row(
                 str(rec.number),
                 param_str,
@@ -550,13 +563,13 @@ def evaluate(
         "--thresholds",
         help="Comma-separated IoU thresholds",
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output",
         "-o",
         help="Save metrics JSON to this path",
     ),
-    compare: Optional[Path] = typer.Option(
+    compare: Path | None = typer.Option(
         None,
         "--compare",
         help="Compare against a previously saved metrics JSON",
@@ -576,7 +589,7 @@ def evaluate(
         thresh_list = [float(t.strip()) for t in thresholds.split(",")]
     except ValueError:
         console.print(f"[bold red]Invalid --thresholds value:[/bold red] {thresholds}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     tracked_results: dict[str, Any] | None = None
     with console.status("[bold green]Evaluating masks …"):
@@ -695,7 +708,13 @@ def evaluate(
             delta_lines.append(f"\n  [green]Improved:[/green] {', '.join(c.improved_images)}")
         if c.regressed_images:
             delta_lines.append(f"  [red]Regressed:[/red] {', '.join(c.regressed_images)}")
-        console.print(Panel("\n".join(delta_lines), title="Comparison vs Baseline", border_style="blue"))
+        console.print(
+            Panel(
+                "\n".join(delta_lines),
+                title="Comparison vs Baseline",
+                border_style="blue",
+            )
+        )
 
     # ── JSON output ───────────────────────────────────────────────────────────
     if output:
@@ -711,7 +730,7 @@ def init(
         "--data-dir",
         help="Directory containing your microscopy images",
     ),
-    doc: Optional[Path] = typer.Option(
+    doc: Path | None = typer.Option(
         None,
         "--doc",
         "-d",
@@ -821,7 +840,7 @@ def demo(
     from microagent.core.inspect import inspect_directory
     from microagent.core.segment import run_segmentation
     from microagent.demo.synthetic import generate_synthetic_dataset
-    from microagent.viz.overlays import create_overlay, save_overlay_montage
+    from microagent.viz.overlays import save_overlay_montage
     from microagent.viz.plots import plot_metrics_summary, plot_object_size_distribution
     from microagent.viz.report import generate_report, load_report_data
 
@@ -927,17 +946,12 @@ def demo(
     plots_dir.mkdir(exist_ok=True)
     try:
         plot_metrics_summary(ev, plots_dir / "metrics_summary.png")
-        # Aggregate all masks for size distribution
         import tifffile as _tf
-        import numpy as np
 
-        combined = np.concatenate([
-            _tf.imread(str(p)).ravel() for p in masks_dir.glob("*_mask.tif")
-        ])
-        # Re-label from combined to get proper regionprops
-        from skimage import measure as _measure
-        combined_2d = _tf.imread(str(next(masks_dir.glob("*_mask.tif"))))
-        plot_object_size_distribution(combined_2d, plots_dir / "object_sizes.png")
+        mask_paths = sorted(masks_dir.glob("*_mask.tif"))
+        if mask_paths:
+            combined_2d = _tf.imread(str(mask_paths[0]))
+            plot_object_size_distribution(combined_2d, plots_dir / "object_sizes.png")
         console.print(f"[green]✓ Plots → {plots_dir}[/green]")
     except Exception as exc:
         console.print(f"[yellow]Plot generation skipped: {exc}[/yellow]")
@@ -983,7 +997,7 @@ def demo(
 
 @app.command()
 def report(
-    project: Optional[Path] = typer.Option(
+    project: Path | None = typer.Option(
         None,
         "--project",
         "-p",
@@ -995,32 +1009,32 @@ def report(
         "-o",
         help="Destination HTML file",
     ),
-    inspection_json: Optional[Path] = typer.Option(
+    inspection_json: Path | None = typer.Option(
         None,
         "--inspection",
         help="Path to inspection JSON (auto-detected as inspection.json if omitted)",
     ),
-    segmentation_json: Optional[Path] = typer.Option(
+    segmentation_json: Path | None = typer.Option(
         None,
         "--segmentation",
         help="Path to segmentation JSON (auto-detected as segmentation.json if omitted)",
     ),
-    evaluation_json: Optional[Path] = typer.Option(
+    evaluation_json: Path | None = typer.Option(
         None,
         "--evaluation",
-        help="Path to evaluation/metrics JSON (auto-detected as metrics.json if omitted)",
+        help="Path to metrics JSON (auto-detected as metrics.json if omitted)",
     ),
-    optimization_json: Optional[Path] = typer.Option(
+    optimization_json: Path | None = typer.Option(
         None,
         "--optimization",
         help="Path to optimization JSON (auto-detected as optimization.json if omitted)",
     ),
-    overlay_dir: Optional[Path] = typer.Option(
+    overlay_dir: Path | None = typer.Option(
         None,
         "--overlays",
         help="Directory of overlay PNGs (auto-detected as overlays/ if omitted)",
     ),
-    plots_dir: Optional[Path] = typer.Option(
+    plots_dir: Path | None = typer.Option(
         None,
         "--plots",
         help="Directory of metric plot PNGs (auto-detected as plots/ if omitted)",
@@ -1030,7 +1044,7 @@ def report(
     from microagent.viz.report import generate_report, load_report_data
 
     # ── Auto-discover result files if not provided ────────────────────────────
-    def _auto(explicit: Optional[Path], *candidates: str) -> Optional[Path]:
+    def _auto(explicit: Path | None, *candidates: str) -> Path | None:
         if explicit:
             return explicit
         for name in candidates:
@@ -1040,7 +1054,11 @@ def report(
         return None
 
     resolved_inspection = _auto(inspection_json, "inspection.json")
-    resolved_segmentation = _auto(segmentation_json, "segmentation.json")
+    resolved_segmentation = _auto(
+        segmentation_json,
+        "segmentation.json",
+        "masks/segmentation.json",
+    )
     resolved_evaluation = _auto(evaluation_json, "metrics.json", "evaluation.json")
     resolved_optimization = _auto(optimization_json, "optimization.json")
     resolved_overlays = _auto(overlay_dir, "overlays", "masks")
@@ -1102,7 +1120,7 @@ def report(
 
 @app.command()
 def export(
-    run: Optional[str] = typer.Option(
+    run: str | None = typer.Option(
         None,
         "--run",
         help="8-character run ID to bundle (from experiments.jsonl)",
@@ -1129,7 +1147,7 @@ def export(
         "--experiments",
         help="Path to experiments.jsonl log",
     ),
-    project: Optional[Path] = typer.Option(
+    project: Path | None = typer.Option(
         None,
         "--project",
         help="Path to project.yaml (auto-detected if omitted)",
@@ -1155,7 +1173,6 @@ def export(
         export_reproducibility_bundle,
         generate_apptainer_def,
         generate_dockerfile,
-        generate_environment_lock,
     )
     from microagent.fair.provenance import collect_metadata
 
@@ -1301,11 +1318,14 @@ def mcp_server(
         args = ["mcp-server"]
     """
     try:
-        from mcp.server.fastmcp import FastMCP
-
-        _HAS_MCP = True
-    except ImportError:
-        console.print("[bold red]Error:[/bold red] mcp package required. Install with: pip install 'microagent[mcp]'")
+        _HAS_MCP = find_spec("mcp.server.fastmcp") is not None
+    except ModuleNotFoundError:
+        _HAS_MCP = False
+    if not _HAS_MCP:
+        console.print(
+            "[bold red]Error:[/bold red] mcp package required. "
+            "Install with: pip install 'microagent[mcp]'"
+        )
         raise typer.Exit(1) from None
 
     from microagent.mcp_server import mcp

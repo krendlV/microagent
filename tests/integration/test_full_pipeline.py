@@ -341,15 +341,14 @@ def test_mcp_pipeline(tmp_path, synthetic_data, monkeypatch):
     assert result["summary"]["n_images"] == 5
 
     # 4. Prepare JSON files for generate_report (it uses cwd discovery) ----
-    # Write inspection and segmentation JSON to tmp_path
+    # run_segmentation writes masks/segmentation.json, which MCP should discover.
     from microagent.core.inspect import inspect_directory
     from microagent.core.segment import run_segmentation
 
     insp = inspect_directory(image_dir)
     insp.save_json(tmp_path / "inspection.json")
 
-    seg = run_segmentation(image_dir, masks_dir, model="cellpose")
-    seg.save_json(tmp_path / "segmentation.json")
+    run_segmentation(image_dir, masks_dir, model="cellpose")
 
     # Change cwd so generate_report can auto-discover files
     monkeypatch.chdir(tmp_path)

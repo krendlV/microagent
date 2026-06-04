@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
 try:
-    from stardist.matching import matching, matching_dataset
+    if find_spec("stardist.matching") is None:
+        raise ImportError
+    from stardist.matching import matching
 
     _HAS_STARDIST = True
 except ImportError:
+    matching = None
     _HAS_STARDIST = False
 
 
@@ -78,14 +81,14 @@ class EvaluationResult:
     worst_images: list[str]  # bottom 3 by F1@0.5
     unmatched_preds: list[str]
     unmatched_gts: list[str]
-    comparison: Optional[ComparisonResult] = None
+    comparison: ComparisonResult | None = None
 
     def save_json(self, path: Path) -> None:
         path = Path(path)
         path.write_text(json.dumps(asdict(self), indent=2))
 
     @staticmethod
-    def load_json(path: Path) -> "EvaluationResult":
+    def load_json(path: Path) -> EvaluationResult:
         data = json.loads(Path(path).read_text())
         per_image = [
             ImageMetrics(
@@ -186,7 +189,7 @@ def _match_at_threshold(
 
     tp = 0
     matched_ious: list[float] = []
-    for r, c in zip(row_ind, col_ind):
+    for r, c in zip(row_ind, col_ind, strict=False):
         if iou_mat[r, c] >= thresh:
             tp += 1
             matched_ious.append(float(iou_mat[r, c]))
@@ -459,7 +462,10 @@ def evaluate_masks(
     summary = _aggregate(per_image, thresholds)
 
     def _f1_at_05(im: ImageMetrics) -> float:
-        m = next((m for m in im.per_threshold if abs(m.threshold - 0.5) < 1e-9), im.per_threshold[0])
+        m = next(
+            (m for m in im.per_threshold if abs(m.threshold - 0.5) < 1e-9),
+            im.per_threshold[0],
+        )
         return m.f1
 
     sorted_by_f1 = sorted(per_image, key=_f1_at_05)
@@ -509,7 +515,10 @@ def compare_runs(
     b_map = {im.filename: im for im in result_b.per_image}
 
     def _f1_05(im: ImageMetrics) -> float:
-        m = next((m for m in im.per_threshold if abs(m.threshold - 0.5) < 1e-9), im.per_threshold[0])
+        m = next(
+            (m for m in im.per_threshold if abs(m.threshold - 0.5) < 1e-9),
+            im.per_threshold[0],
+        )
         return m.f1
 
     improved: list[str] = []

@@ -138,7 +138,11 @@ def _generate_thumbnail(images: list[np.ndarray], out_path: Path) -> None:
             img = images[idx]
             ch0 = img[0] if img.ndim >= 3 else img
             mn, mx = float(ch0.min()), float(ch0.max())
-            display = (ch0.astype(np.float64) - mn) / (mx - mn) if mx > mn else np.zeros_like(ch0, dtype=float)
+            display = (
+                (ch0.astype(np.float64) - mn) / (mx - mn)
+                if mx > mn
+                else np.zeros_like(ch0, dtype=float)
+            )
             ax.imshow(display, cmap="gray", interpolation="nearest")
             ax.set_title(f"#{idx}", fontsize=8, pad=2)
 
@@ -175,7 +179,9 @@ def inspect_directory(
     path = Path(path)
 
     # Discover image files
-    file_paths = sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() in _IMAGE_EXTS)
+    file_paths = sorted(
+        p for p in path.iterdir() if p.is_file() and p.suffix.lower() in _IMAGE_EXTS
+    )
 
     if not file_paths:
         return InspectionReport(

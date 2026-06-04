@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 from pathlib import Path
@@ -39,10 +40,7 @@ def _to_rgb(image: np.ndarray) -> np.ndarray:
     # Normalise to uint8
     gray = gray.astype(np.float64)
     vmin, vmax = gray.min(), gray.max()
-    if vmax > vmin:
-        gray = (gray - vmin) / (vmax - vmin)
-    else:
-        gray = np.zeros_like(gray)
+    gray = (gray - vmin) / (vmax - vmin) if vmax > vmin else np.zeros_like(gray)
     gray_u8 = (gray * 255).astype(np.uint8)
     return np.stack([gray_u8, gray_u8, gray_u8], axis=-1)
 
@@ -123,7 +121,7 @@ def create_error_overlay(
         row_ind, col_ind = linear_sum_assignment(cost)
         matched_gt_idx = set()
         matched_pred_idx = set()
-        for r, c in zip(row_ind, col_ind):
+        for r, c in zip(row_ind, col_ind, strict=False):
             if iou_mat[r, c] >= iou_threshold:
                 matched_gt_idx.add(r)
                 matched_pred_idx.add(c)
@@ -186,6 +184,7 @@ def create_comparison(
         H×(2W)×3 uint8 RGB image.
     """
     import io
+
     import matplotlib.pyplot as plt
 
     ov_a = create_overlay(image, masks_a)
@@ -194,7 +193,7 @@ def create_comparison(
     h, w = ov_a.shape[:2]
     fig, axes = plt.subplots(1, 2, figsize=(w * 2 / 100, h / 100), dpi=100)
 
-    for ax, ov, label in zip(axes, [ov_a, ov_b], labels):
+    for ax, ov, label in zip(axes, [ov_a, ov_b], labels, strict=False):
         ax.imshow(ov)
         ax.set_title(label, fontsize=10, color="white", backgroundcolor="black", pad=2)
         ax.axis("off")
@@ -253,7 +252,7 @@ def save_overlay_montage(
     )
     axes_flat = np.array(axes).flatten()
 
-    for i, (img, masks) in enumerate(zip(images, masks_list)):
+    for i, (img, masks) in enumerate(zip(images, masks_list, strict=False)):
         ov = create_overlay(img, masks)
         axes_flat[i].imshow(ov)
         axes_flat[i].axis("off")

@@ -6,11 +6,12 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from typer.testing import CliRunner
 
 from microagent.cli import app
 from microagent.fair.provenance import RunMetadata
-from microagent.viz.report import ReportData, generate_report
+from microagent.viz.report import ReportData, generate_report, load_report_data
 
 runner = CliRunner()
 
@@ -266,3 +267,62 @@ def test_report_cli(tmp_path: Path) -> None:
     html = out.read_text(encoding="utf-8")
     assert "<!DOCTYPE html>" in html
     assert "Data Summary" in html
+
+
+def test_load_report_data_auto_detects_canonical_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """load_report_data discovers canonical JSON names from the working directory."""
+    (tmp_path / "inspection.json").write_text(
+        json.dumps(_make_inspection_dict()),
+        encoding="utf-8",
+    )
+    masks_dir = tmp_path / "masks"
+    masks_dir.mkdir()
+    (masks_dir / "segmentation.json").write_text(
+        json.dumps(_make_segmentation_dict()),
+        encoding="utf-8",
+    )
+    (tmp_path / "metrics.json").write_text(
+        json.dumps(_make_evaluation_dict()),
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    data = load_report_data(command="pytest:auto_detect")
+
+    assert data.inspection is not None
+    assert data.segmentation is not None
+    assert data.evaluation is not None
+
+
+def test_report_cli_auto_detects_segment_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI report discovers masks/segmentation.json and metrics.json."""
+    (tmp_path / "inspection.json").write_text(
+        json.dumps(_make_inspection_dict()),
+        encoding="utf-8",
+    )
+    masks_dir = tmp_path / "masks"
+    masks_dir.mkdir()
+    (masks_dir / "segmentation.json").write_text(
+        json.dumps(_make_segmentation_dict()),
+        encoding="utf-8",
+    )
+    (tmp_path / "metrics.json").write_text(
+        json.dumps(_make_evaluation_dict()),
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "report.html"
+    result = runner.invoke(app, ["report", "--output", str(out)])
+
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    html = out.read_text(encoding="utf-8")
+    assert "Segmentation Results" in html
+    assert "Metrics Dashboard" in html

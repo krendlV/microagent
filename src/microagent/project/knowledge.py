@@ -1,10 +1,9 @@
-"""Project knowledge: document extraction, interactive interview, YAML I/O, model recommendation."""
+"""Project knowledge and YAML I/O for microscopy analysis projects."""
 
 from __future__ import annotations
 
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +61,7 @@ def load_document(path: Path) -> str:
         except ImportError:
             raise ImportError(
                 "pypdf is required to read PDF files. Install it with: pip install pypdf"
-            )
+            ) from None
     return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -107,7 +106,9 @@ def _keyword_extract(text: str) -> dict[str, Any]:
             break
 
     # Structures
-    found_structures = [s for s in STRUCTURES if s.lower().replace("_", " ") in low or s.lower() in low]
+    found_structures = [
+        s for s in STRUCTURES if s.lower().replace("_", " ") in low or s.lower() in low
+    ]
     if found_structures:
         result["structures"] = found_structures
 
@@ -136,7 +137,10 @@ def _keyword_extract(text: str) -> dict[str, Any]:
         result["bit_depth"] = 8
 
     # Ground truth
-    if any(kw in low for kw in ("ground truth", "ground-truth", "annotation", "labeled", "labelled")):
+    if any(
+        kw in low
+        for kw in ("ground truth", "ground-truth", "annotation", "labeled", "labelled")
+    ):
         result["has_ground_truth"] = True
         for gtf in GROUND_TRUTH_FORMATS:
             if gtf in low:
@@ -199,7 +203,10 @@ def extract_from_text(text: str) -> dict[str, Any]:
             extracted = json.loads(raw_json)
             return extracted
         except Exception as exc:
-            console.print(f"[dim yellow]LLM extraction failed ({exc}); falling back to keyword search.[/dim yellow]")
+            console.print(
+                f"[dim yellow]LLM extraction failed ({exc}); "
+                "falling back to keyword search.[/dim yellow]"
+            )
 
     return _keyword_extract(text)
 
@@ -380,7 +387,9 @@ def _project_to_dict(project: ProjectConfig) -> dict:
             for c in project.channels
         ],
         "image_format": project.image_format,
-        "typical_dimensions": list(project.typical_dimensions) if project.typical_dimensions else None,
+        "typical_dimensions": (
+            list(project.typical_dimensions) if project.typical_dimensions else None
+        ),
         "bit_depth": project.bit_depth,
         "has_ground_truth": project.has_ground_truth,
         "ground_truth_format": project.ground_truth_format,
@@ -493,7 +502,10 @@ def _ask_choice(
             return raw
         if raw == "" and default:
             return default
-        console.print(f"[yellow]Please enter a number 1-{len(choices)} or one of: {', '.join(choices)}[/yellow]")
+        console.print(
+            f"[yellow]Please enter a number 1-{len(choices)} "
+            f"or one of: {', '.join(choices)}[/yellow]"
+        )
 
 
 def _ask_multiselect(
@@ -533,13 +545,17 @@ def _ask_multiselect(
             break
         if valid and selected:
             return selected
-        console.print(f"[yellow]Please enter comma-separated numbers 1-{len(choices)} or option names.[/yellow]")
+        console.print(
+            f"[yellow]Please enter comma-separated numbers 1-{len(choices)} "
+            "or option names.[/yellow]"
+        )
 
 
 def _read_pasted_text() -> str:
     """Read multi-line text pasted by the user until they enter a blank line."""
     console.print(
-        "[dim]Paste your document below and press [bold]Enter twice[/bold] (blank line) when done:[/dim]"
+        "[dim]Paste your document below and press [bold]Enter twice[/bold] "
+        "(blank line) when done:[/dim]"
     )
     lines: list[str] = []
     while True:
@@ -588,7 +604,9 @@ def create_project_interactive(
             console.print(f"[dim]Auto-detected from images: {detected}[/dim]")
 
     # Count how many questions can be skipped
-    pre_count = sum(1 for k in ("name", "organism", "modality", "structures", "analysis_goal") if k in p)
+    pre_count = sum(
+        1 for k in ("name", "organism", "modality", "structures", "analysis_goal") if k in p
+    )
     if pre_count:
         console.print(
             f"[green]{pre_count} field(s) pre-filled from document[/green] — "
@@ -632,7 +650,10 @@ def create_project_interactive(
     # ── Q5: Channels ──────────────────────────────────────────────────────────
     prefill_channels: list[dict] = p.get("channels", [])
     if prefill_channels:
-        console.print(f"\n  [dim]Channels:[/dim] [green]{prefill_channels}[/green] [dim](from document)[/dim]")
+        console.print(
+            f"\n  [dim]Channels:[/dim] [green]{prefill_channels}[/green] "
+            "[dim](from document)[/dim]"
+        )
         keep_ch = Confirm.ask("  Accept these channels?", default=True)
         if keep_ch:
             channels = [
@@ -697,7 +718,9 @@ def create_project_interactive(
     prefill_compute = p.get("compute") or {}
     console.print("\n[bold]Compute environment[/bold] (press Enter to skip each)")
     gpu_default = prefill_compute.get("gpu_model") or ""
-    vram_default = str(prefill_compute.get("vram_gb", "")) if prefill_compute.get("vram_gb") else ""
+    vram_default = (
+        str(prefill_compute.get("vram_gb", "")) if prefill_compute.get("vram_gb") else ""
+    )
     ram_default = str(prefill_compute.get("ram_gb", "")) if prefill_compute.get("ram_gb") else ""
     if gpu_default:
         console.print(f"  [dim]GPU model from document:[/dim] [green]{gpu_default}[/green]")

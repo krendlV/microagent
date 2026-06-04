@@ -659,13 +659,13 @@ class TestRunSegmentation:
 
     @pytest.mark.slow
     def test_metadata_json_written(self, single_image_dir: Path, tmp_path: Path) -> None:
-        """segmentation_metadata.json is written alongside masks."""
+        """segmentation.json is written alongside masks."""
         from microagent.core.segment import run_segmentation
 
         out_dir = tmp_path / "masks"
         run_segmentation(single_image_dir, out_dir, model="cellpose")
 
-        meta = out_dir / "segmentation_metadata.json"
+        meta = out_dir / "segmentation.json"
         assert meta.exists()
         data = json.loads(meta.read_text())
         assert "mask_paths" in data

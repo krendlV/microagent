@@ -73,7 +73,9 @@ def evaluate(
     thresholds: str = "0.5,0.75,0.9",
 ) -> dict[str, Any]:
     """Evaluate segmentation quality against ground truth masks.
-    Returns precision, recall, F1, mean F1 across thresholds, and panoptic quality per image and overall."""
+    Returns precision, recall, F1, mean F1 across thresholds, and panoptic quality
+    per image and overall.
+    """
     try:
         from dataclasses import asdict
 
@@ -164,9 +166,18 @@ def generate_report(output: str = "report.html") -> dict[str, Any]:
 
         cwd = Path.cwd()
         data = load_report_data(
-            inspection_json=_find_file(cwd, "inspection.json", "microagent_inspection/inspection.json"),
-            segmentation_json=_find_file(cwd, "masks/segmentation_metadata.json"),
-            evaluation_json=_find_file(cwd, "evaluation.json"),
+            inspection_json=_find_file(
+                cwd,
+                "inspection.json",
+                "microagent_inspection/inspection.json",
+            ),
+            segmentation_json=_find_file(
+                cwd,
+                "segmentation.json",
+                "masks/segmentation.json",
+                "masks/segmentation_metadata.json",
+            ),
+            evaluation_json=_find_file(cwd, "metrics.json", "evaluation.json"),
             optimization_json=_find_file(cwd, "optimization.json"),
             project_yaml=_find_file(cwd, "project.yaml"),
             overlay_dir=_find_dir(cwd, "overlays"),
@@ -216,7 +227,10 @@ def create_project(
             "structures": [s.strip() for s in structures.split(",")],
             "imaging": {
                 "format": image_format,
-                "channels": {"cytoplasm": ch_list[0], "nucleus": ch_list[1] if len(ch_list) > 1 else 0},
+                "channels": {
+                    "cytoplasm": ch_list[0],
+                    "nucleus": ch_list[1] if len(ch_list) > 1 else 0,
+                },
             },
         }
         out_path = Path.cwd() / "project.yaml"

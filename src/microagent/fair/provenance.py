@@ -171,10 +171,7 @@ def hash_directory(path: Path) -> str:
     """
     h = hashlib.sha256()
     target = Path(path)
-    if target.is_file():
-        files = [target]
-    else:
-        files = sorted(target.rglob("*"))
+    files = [target] if target.is_file() else sorted(target.rglob("*"))
     for f in files:
         if not f.is_file():
             continue

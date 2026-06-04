@@ -183,10 +183,34 @@ def load_report_data(
     """
     from microagent.fair.provenance import collect_metadata
 
+    def _auto(path: Path | None, *candidates: str) -> Path | None:
+        if path is not None:
+            return path
+        for candidate in candidates:
+            candidate_path = Path(candidate)
+            if candidate_path.exists():
+                return candidate_path
+        return None
+
     def _load(path: Path | None) -> dict | None:
         if path and path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
         return None
+
+    inspection_json = _auto(
+        inspection_json,
+        "inspection.json",
+        "microagent_inspection/inspection.json",
+    )
+    segmentation_json = _auto(
+        segmentation_json,
+        "segmentation.json",
+        "masks/segmentation.json",
+        "masks/segmentation_metadata.json",
+    )
+    evaluation_json = _auto(evaluation_json, "metrics.json", "evaluation.json")
+    optimization_json = _auto(optimization_json, "optimization.json")
+    project_yaml = _auto(project_yaml, "project.yaml")
 
     project: dict[str, Any] = {}
     if project_yaml and project_yaml.exists():

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.box import SIMPLE_HEAD
@@ -17,12 +18,69 @@ app = typer.Typer(
 )
 
 console = Console()
+_TRACKING_DISABLED = False
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
+def main(
+    ctx: typer.Context,
+    no_track: bool = typer.Option(
+        False,
+        "--no-track",
+        help="Disable experiments.jsonl logging for pipeline commands.",
+    ),
+) -> None:
+    global _TRACKING_DISABLED
+    _TRACKING_DISABLED = no_track
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
+
+
+def _serializable_params(**params: Any) -> dict[str, Any]:
+    """Return CLI parameters in a JSON-friendly shape for provenance."""
+    normalized: dict[str, Any] = {}
+    for key, value in params.items():
+        if isinstance(value, Path):
+            normalized[key] = str(value)
+        elif isinstance(value, (list, tuple)):
+            normalized[key] = [
+                str(item) if isinstance(item, Path) else item for item in value
+            ]
+        else:
+            normalized[key] = value
+    return normalized
+
+
+def _command_str(
+    command: str,
+    params: dict[str, Any],
+    positional: tuple[str, ...] = (),
+) -> str:
+    """Build a readable command string from user-facing CLI parameters."""
+    parts = ["microagent", command]
+    positional_keys = set(positional)
+    for key in positional:
+        value = params.get(key)
+        if value is not None:
+            parts.append(shlex.quote(str(value)))
+    for key, value in params.items():
+        if key in positional_keys or value is None:
+            continue
+        flag = f"--{key.replace('_', '-')}"
+        if isinstance(value, bool):
+            if value:
+                parts.append(flag)
+            continue
+        parts.extend([flag, shlex.quote(str(value))])
+    return " ".join(parts)
+
+
+def _print_logged_run(results: dict[str, Any] | None) -> None:
+    if _TRACKING_DISABLED or results is None:
+        return
+    run_id = results.get("run_id")
+    if run_id:
+        console.print(f"[dim]run {run_id} logged → experiments.jsonl[/dim]")
 
 
 @app.command()
@@ -130,21 +188,57 @@ def segment(
     """Segment images and save labeled TIFF masks."""
     from microagent.core.segment import run_segmentation
 
+    params = _serializable_params(
+        image_dir=image_dir,
+        output=output,
+        model=model,
+        diameter=diameter,
+        project=project,
+    )
     kwargs: dict = {}
     if diameter is not None:
         kwargs["diameter"] = diameter
 
     output.mkdir(parents=True, exist_ok=True)
 
+    tracked_results: dict[str, Any] | None = None
     with console.status(f"[bold green]Segmenting images in {image_dir} …"):
         try:
-            result = run_segmentation(
-                image_dir=image_dir,
-                output_dir=output,
-                model=model,
-                project_path=project,
-                **kwargs,
-            )
+            if _TRACKING_DISABLED:
+                result = run_segmentation(
+                    image_dir=image_dir,
+                    output_dir=output,
+                    model=model,
+                    project_path=project,
+                    **kwargs,
+                )
+            else:
+                from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+                with tracked_run(
+                    ExperimentTracker(),
+                    _command_str("segment", params, positional=("image_dir",)),
+                    params,
+                    data_path=image_dir,
+                    log_on_exception=False,
+                ) as tracked_results:
+                    result = run_segmentation(
+                        image_dir=image_dir,
+                        output_dir=output,
+                        model=model,
+                        project_path=project,
+                        **kwargs,
+                    )
+                    tracked_results.update(
+                        {
+                            "n_masks": len(result.mask_paths),
+                            "n_objects": sum(s.n_labels for s in result.per_image_stats),
+                            "elapsed_seconds": result.elapsed_seconds,
+                            "output_dir": str(output),
+                            "backend": result.model_info.get("backend"),
+                            "model_name": result.model_info.get("model_name"),
+                        }
+                    )
         except (FileNotFoundError, RuntimeError) as exc:
             console.print(f"[bold red]Error:[/bold red] {exc}")
             raise typer.Exit(1) from None
@@ -180,6 +274,7 @@ def segment(
         f"\n[green]✓ {len(result.mask_paths)} masks saved →[/green] {output}  "
         f"[dim](total {result.elapsed_seconds:.1f}s)[/dim]"
     )
+    _print_logged_run(tracked_results)
 
 
 @app.command()
@@ -196,6 +291,18 @@ def train(
 ) -> None:
     """Fine-tune a CellPose model on labelled microscopy images."""
     from microagent.core.train import TrainConfig, prepare_data, train_cellpose
+
+    params = _serializable_params(
+        image_dir=image_dir,
+        gt_dir=gt_dir,
+        epochs=epochs,
+        lr=lr,
+        weight_decay=weight_decay,
+        pretrained=pretrained,
+        test_split=test_split,
+        output=output,
+        seed=seed,
+    )
 
     # ── Prepare data ──────────────────────────────────────────────────────────
     with console.status("[bold green]Preparing training data …"):
@@ -242,12 +349,36 @@ def train(
     )
     task_id = progress.add_task("Training …", total=epochs)
 
+    tracked_results: dict[str, Any] | None = None
     try:
         with progress:
             # CellPose training is blocking; we update progress after it
             # completes. For interactive epoch-level feedback, users can
             # monitor the rich console output from cellpose itself.
-            result = train_cellpose(config)
+            if _TRACKING_DISABLED:
+                result = train_cellpose(config)
+            else:
+                from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+                with tracked_run(
+                    ExperimentTracker(),
+                    _command_str("train", params, positional=("image_dir", "gt_dir")),
+                    params,
+                    data_path=image_dir,
+                    log_on_exception=False,
+                ) as tracked_results:
+                    result = train_cellpose(config)
+                    losses = result.test_losses or result.train_losses
+                    tracked_results.update(
+                        {
+                            "model_path": str(result.model_path),
+                            "best_epoch": result.best_epoch + 1,
+                            "best_loss": min(losses) if losses else None,
+                            "elapsed_seconds": result.elapsed_seconds,
+                            "n_train_losses": len(result.train_losses),
+                            "n_test_losses": len(result.test_losses),
+                        }
+                    )
             progress.update(task_id, completed=epochs)
     except ImportError as exc:
         console.print(f"[bold red]Import error:[/bold red] {exc}")
@@ -270,6 +401,7 @@ def train(
     tbl.add_row("Elapsed (s)", f"{result.elapsed_seconds:.1f}")
     console.print(tbl)
     console.print(f"\n[green]✓ Model saved →[/green] {result.model_path}")
+    _print_logged_run(tracked_results)
 
 
 @app.command()
@@ -289,6 +421,16 @@ def optimize(
 
     from microagent.core.optimize import OptimizeConfig, run_optimization
 
+    params = _serializable_params(
+        image_dir=image_dir,
+        gt_dir=gt_dir,
+        trials=trials,
+        metric=metric,
+        model=model,
+        iou=iou,
+        seed=seed,
+        project=project,
+    )
     config = OptimizeConfig(
         image_dir=image_dir,
         gt_dir=gt_dir,
@@ -322,6 +464,7 @@ def optimize(
         return tbl
 
     records: list = []
+    tracked_results: dict[str, Any] | None = None
 
     with Live(console=console, refresh_per_second=4) as live:
         live.update(_make_table(records))
@@ -331,7 +474,33 @@ def optimize(
             live.update(_make_table(records))
 
         try:
-            result = run_optimization(config, on_trial_complete=_on_trial)
+            if _TRACKING_DISABLED:
+                result = run_optimization(config, on_trial_complete=_on_trial)
+            else:
+                from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+                with tracked_run(
+                    ExperimentTracker(),
+                    _command_str("optimize", params, positional=("image_dir", "gt_dir")),
+                    params,
+                    data_path=image_dir,
+                    log_on_exception=False,
+                ) as tracked_results:
+                    result = run_optimization(config, on_trial_complete=_on_trial)
+                    tracked_results.update(
+                        {
+                            "best_params": result.best_params,
+                            "best_value": result.best_value,
+                            "baseline_value": result.baseline_value,
+                            "improvement": result.improvement,
+                            "n_trials": len(result.trials),
+                            "study_path": (
+                                str(result.study_path)
+                                if result.study_path is not None
+                                else None
+                            ),
+                        }
+                    )
         except ImportError as exc:
             console.print(f"[bold red]Import error:[/bold red] {exc}")
             raise typer.Exit(1) from None
@@ -356,6 +525,7 @@ def optimize(
     )
     if result.study_path:
         console.print(f"[dim]Study saved → {result.study_path}[/dim]")
+    _print_logged_run(tracked_results)
 
 
 @app.command()
@@ -382,14 +552,56 @@ def evaluate(
     """Evaluate predicted masks against ground-truth and print metrics."""
     from microagent.core.evaluate import compare_runs, evaluate_masks
 
+    params = _serializable_params(
+        pred_dir=pred_dir,
+        gt_dir=gt_dir,
+        thresholds=thresholds,
+        output=output,
+        compare=compare,
+    )
     try:
         thresh_list = [float(t.strip()) for t in thresholds.split(",")]
     except ValueError:
         console.print(f"[bold red]Invalid --thresholds value:[/bold red] {thresholds}")
         raise typer.Exit(1)
 
+    tracked_results: dict[str, Any] | None = None
     with console.status("[bold green]Evaluating masks …"):
-        result = evaluate_masks(pred_dir, gt_dir, thresholds=thresh_list)
+        if _TRACKING_DISABLED:
+            result = evaluate_masks(pred_dir, gt_dir, thresholds=thresh_list)
+        else:
+            from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+            with tracked_run(
+                ExperimentTracker(),
+                _command_str("evaluate", params, positional=("pred_dir", "gt_dir")),
+                params,
+                data_path=pred_dir,
+                log_on_exception=False,
+            ) as tracked_results:
+                result = evaluate_masks(pred_dir, gt_dir, thresholds=thresh_list)
+                f1_at_05 = next(
+                    (
+                        tm.f1
+                        for tm in result.summary.per_threshold
+                        if abs(tm.threshold - 0.5) < 1e-9
+                    ),
+                    result.summary.per_threshold[0].f1
+                    if result.summary.per_threshold
+                    else 0.0,
+                )
+                tracked_results.update(
+                    {
+                        "f1": f1_at_05,
+                        "map": result.summary.map,
+                        "panoptic_quality": result.summary.panoptic_quality,
+                        "n_images": result.summary.n_images,
+                        "mean_gt_count": result.summary.mean_gt_count,
+                        "mean_pred_count": result.summary.mean_pred_count,
+                        "n_unmatched_preds": len(result.unmatched_preds),
+                        "n_unmatched_gts": len(result.unmatched_gts),
+                    }
+                )
 
     if compare and compare.exists():
         from microagent.core.evaluate import EvaluationResult
@@ -476,6 +688,7 @@ def evaluate(
     if output:
         result.save_json(output)
         console.print(f"\n[green]Metrics saved →[/green] {output}")
+    _print_logged_run(tracked_results)
 
 
 @app.command()

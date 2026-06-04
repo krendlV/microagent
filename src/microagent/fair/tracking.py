@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
 
 from microagent.fair.provenance import RunMetadata, collect_metadata
 
@@ -161,6 +161,8 @@ def tracked_run(
     command: str,
     params: dict,
     data_path: Path | None = None,
+    *,
+    log_on_exception: bool = True,
 ):
     """Context manager that times a block and logs provenance on exit.
 
@@ -174,6 +176,10 @@ def tracked_run(
         All parameters (including defaults) for the run.
     data_path:
         Path to input data for computing data_hash (optional).
+    log_on_exception:
+        If ``True`` (default), persist partial results even when the block
+        raises. CLI commands set this to ``False`` so failed invocations do not
+        create successful-looking run records.
 
     Yields
     ------
@@ -189,9 +195,8 @@ def tracked_run(
     """
     results: dict = {}
     start = time.monotonic()
-    try:
-        yield results
-    finally:
+
+    def _log() -> None:
         elapsed = time.monotonic() - start
         metadata = collect_metadata(
             command=command,
@@ -200,4 +205,13 @@ def tracked_run(
             data_path=data_path,
             wall_clock_seconds=round(elapsed, 3),
         )
-        tracker.log_run(metadata, results)
+        results["run_id"] = tracker.log_run(metadata, results)
+
+    try:
+        yield results
+    except Exception:
+        if log_on_exception:
+            _log()
+        raise
+    else:
+        _log()

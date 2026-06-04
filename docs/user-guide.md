@@ -170,7 +170,7 @@ microagent optimize train_images/ train_masks/ \
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--trials` | 20 | Number of Optuna trials |
-| `--metric` | `f1` | Metric to optimize (`f1`, `map`, `pq`, `precision`, `recall`) |
+| `--metric` | `f1` | Metric to optimize (`f1`, `mean_f1`, `pq`, `precision`, `recall`) |
 | `--model` | `auto` | Backend to tune (`cellpose`, `stardist`) |
 | `--iou` | 0.5 | IoU threshold for metric computation |
 
@@ -200,7 +200,7 @@ By default reads results from the current directory. Outputs `report.html` — a
 
 The report includes:
 - Dataset summary (image count, mean cell count, QC flags)
-- Metric tables (F1, precision, recall, mAP, PQ at all IoU thresholds)
+- Metric tables (F1, precision, recall, mean F1, PQ at all IoU thresholds)
 - Per-image overlay composites (original + predicted mask)
 - Charts: F1 vs. IoU threshold, cell count distribution
 - Full provenance metadata (library versions, data hash, git commit)
@@ -238,6 +238,6 @@ import json
 with open('experiments.jsonl') as f:
     for line in f:
         r = json.loads(line)
-        print(r['run_id'], r['results'].get('map', 'N/A'))
+        print(r['run_id'], r['results'].get('mean_f1', 'N/A'))
 "
 ```

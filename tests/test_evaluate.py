@@ -158,7 +158,7 @@ class TestPerfectMatch:
         im = result.per_image[0]
         for tm in im.per_threshold:
             assert abs(tm.f1 - 1.0) < 1e-6, f"Expected F1=1 at {tm.threshold}, got {tm.f1}"
-        assert abs(result.summary.map - 1.0) < 1e-6
+        assert abs(result.summary.mean_f1 - 1.0) < 1e-6
         assert abs(result.summary.panoptic_quality - 1.0) < 1e-6
 
     def test_no_unmatched(self, perfect_dirs: tuple[Path, Path]) -> None:
@@ -177,7 +177,7 @@ class TestNoMatch:
         im = result.per_image[0]
         for tm in im.per_threshold:
             assert tm.f1 == 0.0, f"Expected F1=0 at {tm.threshold}, got {tm.f1}"
-        assert result.summary.map == 0.0
+        assert result.summary.mean_f1 == 0.0
 
 
 # ── evaluate_masks: partial match (known TP/FP/FN) ────────────────────────────
@@ -275,14 +275,14 @@ class TestCompareRuns:
             gt_count=4,
             pred_count=4,
             per_threshold=[tm],
-            map=f1,
+            mean_f1=f1,
             panoptic_quality=f1 * f1,
             iou_distribution=[],
         )
         summary = DatasetMetrics(
             n_images=1,
             per_threshold=[tm],
-            map=f1,
+            mean_f1=f1,
             panoptic_quality=f1 * f1,
             mean_gt_count=4.0,
             mean_pred_count=4.0,
@@ -331,7 +331,7 @@ class TestJsonRoundTrip:
         result.save_json(out)
         loaded = EvaluationResult.load_json(out)
         assert loaded.summary.n_images == result.summary.n_images
-        assert abs(loaded.summary.map - result.summary.map) < 1e-9
+        assert abs(loaded.summary.mean_f1 - result.summary.mean_f1) < 1e-9
 
 
 # ── CLI integration ───────────────────────────────────────────────────────────

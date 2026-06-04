@@ -58,3 +58,9 @@ htmlcov/
 *.log
 outputs/
 results/
+
+# Sample / demo data (not tracked — regenerate with `microagent demo`)
+sample_data/
+demo_output/
+experiments.jsonl
+optuna_study.pkl

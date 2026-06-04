@@ -1,0 +1,1 @@
+Run the full MicroAgent pipeline on the data specified in project.yaml. Steps: (1) microagent inspect to verify data, (2) microagent segment with auto-selected model, (3) microagent evaluate if ground truth exists, (4) microagent report to generate HTML report. Show progress and summarize results. If any step fails, diagnose and suggest fixes.

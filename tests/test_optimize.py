@@ -107,7 +107,7 @@ class TestGetMetricValue:
         tm.recall = 0.6
         im = MagicMock()
         im.per_threshold = [tm]
-        im.map = 0.65
+        im.mean_f1 = 0.65
         im.panoptic_quality = 0.55
         return im
 
@@ -115,9 +115,9 @@ class TestGetMetricValue:
         im = self._make_im_metrics(f1=0.72)
         assert _get_metric_value(im, "f1", 0.5) == pytest.approx(0.72)
 
-    def test_map(self) -> None:
+    def test_mean_f1(self) -> None:
         im = self._make_im_metrics()
-        assert _get_metric_value(im, "map", 0.5) == pytest.approx(0.65)
+        assert _get_metric_value(im, "mean_f1", 0.5) == pytest.approx(0.65)
 
     def test_pq(self) -> None:
         im = self._make_im_metrics()

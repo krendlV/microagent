@@ -42,7 +42,7 @@ class ImageMetrics:
     gt_count: int
     pred_count: int
     per_threshold: list[ThresholdMetrics]
-    map: float  # mean average precision across thresholds
+    mean_f1: float  # mean F1 across IoU thresholds
     panoptic_quality: float  # PQ = SQ * RQ at IoU 0.5
     iou_distribution: list[float]  # per-object IoU of matched pairs at IoU 0.5
 
@@ -53,7 +53,7 @@ class DatasetMetrics:
 
     n_images: int
     per_threshold: list[ThresholdMetrics]
-    map: float
+    mean_f1: float
     panoptic_quality: float
     mean_gt_count: float
     mean_pred_count: float
@@ -93,7 +93,7 @@ class EvaluationResult:
                 gt_count=im["gt_count"],
                 pred_count=im["pred_count"],
                 per_threshold=[ThresholdMetrics(**tm) for tm in im["per_threshold"]],
-                map=im["map"],
+                mean_f1=im["mean_f1"],
                 panoptic_quality=im["panoptic_quality"],
                 iou_distribution=im["iou_distribution"],
             )
@@ -102,7 +102,7 @@ class EvaluationResult:
         summary = DatasetMetrics(
             n_images=data["summary"]["n_images"],
             per_threshold=[ThresholdMetrics(**tm) for tm in data["summary"]["per_threshold"]],
-            map=data["summary"]["map"],
+            mean_f1=data["summary"]["mean_f1"],
             panoptic_quality=data["summary"]["panoptic_quality"],
             mean_gt_count=data["summary"]["mean_gt_count"],
             mean_pred_count=data["summary"]["mean_pred_count"],
@@ -300,8 +300,7 @@ def _evaluate_pair(
     else:
         per_thresh, iou_dist = _metrics_from_fallback(y_true, y_pred, thresholds)
 
-    # mAP = mean of F1 scores across thresholds (AP approximation)
-    map_score = float(np.mean([m.f1 for m in per_thresh]))
+    mean_f1 = float(np.mean([m.f1 for m in per_thresh]))
 
     # PQ at IoU 0.5: SQ * RQ where SQ = mean_true_score, RQ = F1
     m05 = next((m for m in per_thresh if abs(m.threshold - 0.5) < 1e-9), per_thresh[0])
@@ -312,7 +311,7 @@ def _evaluate_pair(
         gt_count=gt_count,
         pred_count=pred_count,
         per_threshold=per_thresh,
-        map=map_score,
+        mean_f1=mean_f1,
         panoptic_quality=pq,
         iou_distribution=iou_dist,
     )
@@ -402,7 +401,7 @@ def _aggregate(image_metrics: list[ImageMetrics], thresholds: list[float]) -> Da
             )
         )
 
-    map_score = float(np.mean([im.map for im in image_metrics]))
+    mean_f1 = float(np.mean([im.mean_f1 for im in image_metrics]))
     pq = float(np.mean([im.panoptic_quality for im in image_metrics]))
     mean_gt = float(np.mean([im.gt_count for im in image_metrics]))
     mean_pred = float(np.mean([im.pred_count for im in image_metrics]))
@@ -410,7 +409,7 @@ def _aggregate(image_metrics: list[ImageMetrics], thresholds: list[float]) -> Da
     return DatasetMetrics(
         n_images=n,
         per_threshold=agg_thresh,
-        map=map_score,
+        mean_f1=mean_f1,
         panoptic_quality=pq,
         mean_gt_count=mean_gt,
         mean_pred_count=mean_pred,
@@ -494,7 +493,7 @@ def compare_runs(
     ComparisonResult
     """
     def _summary_dict(r: EvaluationResult) -> dict[str, float]:
-        d: dict[str, float] = {"map": r.summary.map, "pq": r.summary.panoptic_quality}
+        d: dict[str, float] = {"mean_f1": r.summary.mean_f1, "pq": r.summary.panoptic_quality}
         for tm in r.summary.per_threshold:
             t = f"{tm.threshold:.2f}"
             d[f"f1@{t}"] = tm.f1

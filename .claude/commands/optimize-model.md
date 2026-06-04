@@ -1,0 +1,1 @@
+Run hyperparameter optimization for the current project. Read project.yaml for data paths and model config. Run microagent optimize with Optuna, budget constrained to the number of trials the user specifies (default 20). After optimization, compare best result to baseline, show improvement delta, and ask if the user wants to retrain with optimal parameters.

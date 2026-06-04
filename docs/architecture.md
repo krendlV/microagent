@@ -52,7 +52,7 @@ core/segment.py
         ▼
 core/evaluate.py  (if ground truth available)
   → StarDist matching (or scipy fallback)
-  → EvaluationResult (per_image, summary: F1/mAP/PQ at multiple thresholds)
+  → EvaluationResult (per_image, summary: F1/mean_f1/PQ at multiple thresholds)
         │
         ├──► viz/plots.py → metric charts (PNG)
         │

@@ -77,7 +77,7 @@ def _make_eval_result():
             gt_count=4,
             pred_count=4,
             per_threshold=[_tm(0.5, 0.8 - i * 0.1, 0.85, 0.75)],
-            map=0.8 - i * 0.1,
+            mean_f1=0.8 - i * 0.1,
             panoptic_quality=0.7,
             iou_distribution=[0.7, 0.8],
         )
@@ -90,7 +90,7 @@ def _make_eval_result():
             _tm(0.75, 0.60, 0.65, 0.55),
             _tm(0.9, 0.40, 0.45, 0.35),
         ],
-        map=0.75,
+        mean_f1=0.75,
         panoptic_quality=0.65,
         mean_gt_count=4.0,
         mean_pred_count=4.0,

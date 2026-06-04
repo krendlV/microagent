@@ -123,7 +123,7 @@ microagent segment /path/to/images -o /path/to/masks
 microagent evaluate masks/ /path/to/ground_truth/
 ```
 
-Outputs F1, precision, recall, mAP, and panoptic quality. Ground truth files are matched to predictions by filename stem.
+Outputs F1, precision, recall, mean F1 across thresholds, and panoptic quality. Ground truth files are matched to predictions by filename stem.
 
 ### Step 5 — Generate a report
 

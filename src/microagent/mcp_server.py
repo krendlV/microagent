@@ -73,7 +73,7 @@ def evaluate(
     thresholds: str = "0.5,0.75,0.9",
 ) -> dict[str, Any]:
     """Evaluate segmentation quality against ground truth masks.
-    Returns precision, recall, F1, mAP, panoptic quality per image and overall."""
+    Returns precision, recall, F1, mean F1 across thresholds, and panoptic quality per image and overall."""
     try:
         from dataclasses import asdict
 

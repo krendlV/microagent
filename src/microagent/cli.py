@@ -409,7 +409,7 @@ def optimize(
     image_dir: Path = typer.Argument(..., help="Directory containing images"),
     gt_dir: Path = typer.Argument(..., help="Directory containing ground-truth masks"),
     trials: int = typer.Option(20, "--trials", "-n", help="Number of Optuna trials"),
-    metric: str = typer.Option("f1", "--metric", help="Metric to optimise: f1, map, pq, precision, recall"),
+    metric: str = typer.Option("f1", "--metric", help="Metric to optimise: f1, mean_f1, pq, precision, recall"),
     model: str = typer.Option("auto", "--model", "-m", help="Backend: auto, cellpose, or stardist"),
     iou: float = typer.Option(0.5, "--iou", help="IoU threshold for F1/precision/recall"),
     seed: int = typer.Option(42, "--seed", help="Random seed"),
@@ -606,7 +606,7 @@ def evaluate(
                 tracked_results.update(
                     {
                         "f1": f1_at_05,
-                        "map": result.summary.map,
+                        "mean_f1": result.summary.mean_f1,
                         "panoptic_quality": result.summary.panoptic_quality,
                         "n_images": result.summary.n_images,
                         "mean_gt_count": result.summary.mean_gt_count,
@@ -648,7 +648,7 @@ def evaluate(
     tbl.add_column("Pred", justify="right")
     for t in thresh_list:
         tbl.add_column(f"F1@{t}", justify="right")
-    tbl.add_column("mAP", justify="right")
+    tbl.add_column("Mean F1", justify="right")
     tbl.add_column("PQ", justify="right")
 
     for im in result.per_image:
@@ -659,7 +659,7 @@ def evaluate(
         ]
         for tm in im.per_threshold:
             row.append(_fmt(tm.f1))
-        row.append(_fmt(im.map))
+        row.append(_fmt(im.mean_f1))
         row.append(_fmt(im.panoptic_quality))
         tbl.add_row(*row)
 
@@ -672,7 +672,7 @@ def evaluate(
     ]
     for tm in s.per_threshold:
         summary_row.append(_fmt(tm.f1))
-    summary_row.append(_fmt(s.map))
+    summary_row.append(_fmt(s.mean_f1))
     summary_row.append(_fmt(s.panoptic_quality))
     tbl.add_row(*summary_row)
 
@@ -919,7 +919,7 @@ def demo(
     )
     console.print(
         f"[green]✓ Evaluate:[/green] F1@0.5={f1_05:.3f}  "
-        f"mAP={ev.summary.map:.3f}  PQ={ev.summary.panoptic_quality:.3f}"
+        f"Mean F1={ev.summary.mean_f1:.3f}  PQ={ev.summary.panoptic_quality:.3f}"
     )
 
     # ── 6. Generate metric plots ──────────────────────────────────────────

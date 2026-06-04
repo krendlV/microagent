@@ -122,7 +122,7 @@ microagent evaluate <pred_dir> <gt_dir> [OPTIONS]
 - `precision`, `recall`, `f1` — at each IoU threshold
 - `tp`, `fp`, `fn` — instance counts
 - `mean_true_score` — mean IoU of matched pairs
-- `map` — mean F1 across all thresholds
+- `mean_f1` — mean F1 across all thresholds
 - `panoptic_quality` — SQ × RQ at IoU 0.5
 
 When `--compare` is given, also outputs per-image deltas and lists of improved/regressed images.
@@ -177,7 +177,7 @@ Requires `pip install "microagent[tracking]"`.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--trials`, `-n` | INT | 20 | Number of Optuna trials |
-| `--metric` | TEXT | `f1` | Metric to optimize: `f1`, `precision`, `recall`, `map`, `pq` |
+| `--metric` | TEXT | `f1` | Metric to optimize: `f1`, `precision`, `recall`, `mean_f1`, `pq` |
 | `--model`, `-m` | TEXT | `auto` | Backend: `auto`, `cellpose`, `stardist` |
 | `--iou` | FLOAT | 0.5 | IoU threshold for metric evaluation |
 | `--seed` | INT | 42 | Random seed |

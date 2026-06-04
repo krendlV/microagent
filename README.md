@@ -36,7 +36,7 @@ microagent report                            # generate report.html
 |---|---|
 | **Multi-model segmentation** | CellPose (cyto2/cyto3/cpsam), StarDist (fluorescence/H&E), micro-SAM |
 | **Auto model selection** | Picks the best model based on your `project.yaml` metadata |
-| **Quantitative evaluation** | F1, precision, recall, mAP, panoptic quality at multiple IoU thresholds |
+| **Quantitative evaluation** | F1, precision, recall, mean F1 across thresholds, panoptic quality |
 | **Fine-tuning** | One-command CellPose fine-tuning on your annotated data |
 | **Hyperparameter optimization** | Optuna-powered search over diameter, flow threshold, and more |
 | **HTML reports** | Self-contained reports with overlay images, charts, and metrics |

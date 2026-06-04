@@ -362,8 +362,8 @@
       <div class="value">{{ "%.1f" | format(s.mean_pred_count) }}</div>
     </div>
     <div class="stat-card">
-      <div class="label">mAP</div>
-      <div class="value">{{ "%.3f" | format(s.map) }}</div>
+      <div class="label">Mean F1</div>
+      <div class="value">{{ "%.3f" | format(s.mean_f1) }}</div>
     </div>
     <div class="stat-card">
       <div class="label">Panoptic Quality</div>
@@ -387,7 +387,7 @@
         <tr>
           <th>Filename</th><th>GT</th><th>Pred</th>
           {% for tm in thresholds %}<th>F1@{{ tm.threshold }}</th>{% endfor %}
-          <th>mAP</th><th>PQ</th>
+          <th>Mean F1</th><th>PQ</th>
         </tr>
       </thead>
       <tbody>
@@ -402,8 +402,8 @@
             {{ "%.3f" | format(tm.f1) }}
           </td>
           {% endfor %}
-          <td class="num {% if im.map >= 0.8 %}good{% elif im.map >= 0.5 %}ok{% else %}bad{% endif %}">
-            {{ "%.3f" | format(im.map) }}
+          <td class="num {% if im.mean_f1 >= 0.8 %}good{% elif im.mean_f1 >= 0.5 %}ok{% else %}bad{% endif %}">
+            {{ "%.3f" | format(im.mean_f1) }}
           </td>
           <td class="num {% if im.panoptic_quality >= 0.8 %}good{% elif im.panoptic_quality >= 0.5 %}ok{% else %}bad{% endif %}">
             {{ "%.3f" | format(im.panoptic_quality) }}

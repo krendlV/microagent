@@ -38,7 +38,7 @@ class OptimizeConfig:
     n_trials:
         Number of Optuna trials to run.
     metric:
-        Optimisation target: ``"f1"``, ``"precision"``, ``"recall"``, ``"map"``, ``"pq"``.
+        Optimisation target: ``"f1"``, ``"precision"``, ``"recall"``, ``"mean_f1"``, ``"pq"``.
     iou_threshold:
         IoU threshold used when computing F1 / precision / recall.
     seed:
@@ -210,8 +210,8 @@ def _suggest_params(trial: Any, backend: str, search_space: dict[str, Any]) -> d
 
 def _get_metric_value(im_metrics: Any, metric: str, iou_threshold: float) -> float:
     """Extract a scalar metric from an ImageMetrics instance."""
-    if metric == "map":
-        return float(im_metrics.map)
+    if metric == "mean_f1":
+        return float(im_metrics.mean_f1)
     if metric in ("pq", "panoptic_quality"):
         return float(im_metrics.panoptic_quality)
     # f1 / precision / recall — look up the right IoU threshold bucket

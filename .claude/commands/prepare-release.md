@@ -1,0 +1,1 @@
+Prepare a release of MicroAgent. Steps: (1) Run full test suite with coverage, (2) Run ruff check and format, (3) Run mypy on src/, (4) Update CHANGELOG.md moving [Unreleased] to the specified version, (5) Update __version__ in __init__.py, (6) Create git tag. Report any issues found.

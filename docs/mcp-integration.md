@@ -158,7 +158,7 @@ Compute segmentation metrics against ground truth.
 | `gt_dir` | string | yes | Ground truth masks directory |
 | `thresholds` | string | no | Comma-separated IoU thresholds (default: `"0.5,0.75,0.9"`) |
 
-**Returns:** `{status, summary: {f1, precision, recall, map, panoptic_quality}, per_image}`
+**Returns:** `{status, summary: {f1, precision, recall, mean_f1, panoptic_quality}, per_image}`
 
 ---
 
@@ -188,7 +188,7 @@ Hyperparameter optimization with Optuna.
 | `image_dir` | string | yes | Images directory |
 | `gt_dir` | string | yes | Ground truth directory |
 | `n_trials` | integer | no | Number of trials (default: 20) |
-| `metric` | string | no | `f1`, `map`, `pq`, `precision`, `recall` (default: `f1`) |
+| `metric` | string | no | `f1`, `mean_f1`, `pq`, `precision`, `recall` (default: `f1`) |
 
 **Returns:** `{status, best_params, best_value, baseline_value, improvement}`
 

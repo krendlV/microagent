@@ -274,8 +274,12 @@ def auto_detect_from_directory(path: Path) -> dict[str, Any]:
 # ── Model recommendation ───────────────────────────────────────────────────────
 
 
-def recommend_model(project: ProjectConfig) -> tuple[str, dict]:
-    """Select the best segmentation model based on project properties.
+def recommend_model_from_properties(
+    modality: str,
+    structures: list[str],
+    vram_gb: float | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Select the best segmentation model from normalized project properties.
 
     Decision matrix (Section 3.3):
     - EM → stardist 2D_versatile_fluo
@@ -287,35 +291,78 @@ def recommend_model(project: ProjectConfig) -> tuple[str, dict]:
     - Low VRAM (<4 GB) → cellpose cyto2 (no GPU)
     - Default → cellpose cpsam
     """
-    modality = project.modality.lower()
-    structures = [s.lower() for s in project.structures]
-    vram = project.compute.vram_gb
-
-    params: dict[str, Any] = {}
+    modality = modality.lower()
+    structures = [s.lower() for s in structures]
 
     if modality == "em":
-        return "stardist", {"model_name": "2D_versatile_fluo", "prob_thresh": 0.5, "nms_thresh": 0.4}
+        return "stardist", {
+            "model_name": "2D_versatile_fluo",
+            "prob_thresh": 0.5,
+            "nms_thresh": 0.4,
+        }
 
     if modality == "h&e":
-        return "stardist", {"model_name": "2D_versatile_he", "prob_thresh": 0.5, "nms_thresh": 0.4}
+        return "stardist", {
+            "model_name": "2D_versatile_he",
+            "prob_thresh": 0.5,
+            "nms_thresh": 0.4,
+        }
 
     nucleus_only = structures and all(s == "nuclei" for s in structures)
     if nucleus_only:
-        return "stardist", {"model_name": "2D_versatile_fluo", "prob_thresh": 0.479071, "nms_thresh": 0.3}
+        return "stardist", {
+            "model_name": "2D_versatile_fluo",
+            "prob_thresh": 0.479071,
+            "nms_thresh": 0.3,
+        }
 
-    if vram is not None and vram < 4.0:
-        return "cellpose", {"model_name": "cyto2", "diameter": 30, "gpu": False, "flow_threshold": 0.4}
+    if vram_gb is not None and vram_gb < 4.0:
+        return "cellpose", {
+            "model_name": "cyto2",
+            "diameter": 30,
+            "gpu": False,
+            "flow_threshold": 0.4,
+        }
 
     if modality in ("phase_contrast", "brightfield"):
-        return "cellpose", {"model_name": "cyto2", "diameter": 30, "gpu": True, "flow_threshold": 0.4}
+        return "cellpose", {
+            "model_name": "cyto2",
+            "diameter": 30,
+            "gpu": True,
+            "flow_threshold": 0.4,
+        }
 
     if modality == "confocal":
-        return "cellpose", {"model_name": "cpsam", "diameter": 0, "gpu": True, "flow_threshold": 0.4}
+        return "cellpose", {
+            "model_name": "cpsam",
+            "diameter": 0,
+            "gpu": True,
+            "flow_threshold": 0.4,
+        }
 
     if modality == "fluorescence":
-        return "cellpose", {"model_name": "cyto3", "diameter": 0, "gpu": True, "flow_threshold": 0.4}
+        return "cellpose", {
+            "model_name": "cyto3",
+            "diameter": 0,
+            "gpu": True,
+            "flow_threshold": 0.4,
+        }
 
-    return "cellpose", {"model_name": "cpsam", "diameter": 0, "gpu": True, "flow_threshold": 0.4}
+    return "cellpose", {
+        "model_name": "cpsam",
+        "diameter": 0,
+        "gpu": True,
+        "flow_threshold": 0.4,
+    }
+
+
+def recommend_model(project: ProjectConfig) -> tuple[str, dict[str, Any]]:
+    """Select the best segmentation model based on project properties."""
+    return recommend_model_from_properties(
+        modality=project.modality,
+        structures=project.structures,
+        vram_gb=project.compute.vram_gb,
+    )
 
 
 # ── YAML serialization ─────────────────────────────────────────────────────────

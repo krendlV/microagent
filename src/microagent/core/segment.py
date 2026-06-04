@@ -25,6 +25,7 @@ try:
 
     _HAS_STARDIST = True
 except ImportError:
+    _StarDist2D = None
     _HAS_STARDIST = False
 
 try:
@@ -132,6 +133,7 @@ class CellPoseSegmenter(Segmenter):
 
     def __init__(
         self,
+        model_name: str = "cpsam",
         diameter: int | None = None,
         flow_threshold: float = 0.4,
         cellprob_threshold: float = 0.0,
@@ -142,11 +144,13 @@ class CellPoseSegmenter(Segmenter):
             raise ImportError(
                 "cellpose is not installed. Install it with: pip install cellpose"
             )
+        self._model_name = model_name
         self._diameter = diameter
         self._flow_threshold = flow_threshold
         self._cellprob_threshold = cellprob_threshold
         self._channels = channels if channels is not None else [0, 0]
-        self._model = _cp_models.CellposeModel(gpu=gpu, pretrained_model="cpsam")
+        self._gpu = gpu
+        self._model = _cp_models.CellposeModel(gpu=gpu, pretrained_model=model_name)
 
     def predict(self, image: np.ndarray, **kwargs: Any) -> np.ndarray:
         """Run CellPose inference.
@@ -182,13 +186,14 @@ class CellPoseSegmenter(Segmenter):
 
     def get_info(self) -> dict[str, Any]:
         return {
-            "model_name": "cpsam",
+            "model_name": getattr(self, "_model_name", "cpsam"),
             "backend": "cellpose",
             "parameters": {
                 "diameter": self._diameter,
                 "flow_threshold": self._flow_threshold,
                 "cellprob_threshold": self._cellprob_threshold,
                 "channels": self._channels,
+                "gpu": getattr(self, "_gpu", True),
             },
         }
 
@@ -198,6 +203,7 @@ class CellPoseSegmenter(Segmenter):
             "flow_threshold": self._flow_threshold,
             "cellprob_threshold": self._cellprob_threshold,
             "channels": self._channels,
+            "gpu": getattr(self, "_gpu", True),
         }
         if project is None:
             return params
@@ -311,23 +317,11 @@ class StarDistSegmenter(Segmenter):
 
 # ── Model selection ────────────────────────────────────────────────────────────
 
-_STAINING_TO_STARDIST_MODEL = {
-    "fluorescence": "2D_versatile_fluo",
-    "he": "2D_versatile_he",
-    "h&e": "2D_versatile_he",
-}
-
-
 def select_segmenter(project: dict[str, Any] | None = None) -> Segmenter:
     """Choose and instantiate the best segmenter given a project config.
 
-    Selection logic (Section 3.3 of project plan):
-
-    - nuclei + fluorescence  → CellPose cpsam (preferred) or StarDist fluo
-    - nuclei + H&E           → StarDist 2D_versatile_he
-    - whole_cells            → CellPose cpsam
-    - organelles / EM        → CellPose cpsam (μSAM placeholder)
-    - anything else          → CellPose cpsam (default)
+    Selection delegates to ``microagent.project.knowledge.recommend_model`` so
+    project initialization and segmentation use the same decision matrix.
 
     Parameters
     ----------
@@ -339,53 +333,124 @@ def select_segmenter(project: dict[str, Any] | None = None) -> Segmenter:
     Segmenter
         An instantiated, pre-configured segmenter.
     """
+    backend, params = _recommend_from_project(project)
+    return _instantiate_recommended_segmenter(backend, params, project, allow_fallback=True)
+
+
+def _recommend_from_project(project: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+    """Return recommended backend and params for a parsed project dictionary."""
+    if project:
+        recommended_model = str(project.get("recommended_model") or "")
+        recommended_params = project.get("recommended_params") or {}
+        if recommended_model and isinstance(recommended_params, dict):
+            return recommended_model, dict(recommended_params)
+
+    from microagent.project.knowledge import recommend_model_from_properties
+
     if project is None:
-        return _make_cellpose(project)
+        return recommend_model_from_properties("unknown", [], None)
 
-    imaging = project.get("imaging", {})
-    target = imaging.get("segmentation_target", "").lower()
-    staining = imaging.get("staining", "").lower()
-
-    # nuclei + H&E → StarDist he
-    if "nuclei" in target and staining in ("he", "h&e"):
-        if _HAS_STARDIST:
-            sd = StarDistSegmenter(model_name="2D_versatile_he")
-            _apply_project_params(sd, project)
-            return sd
-        # Fallback to CellPose if StarDist not installed
-        return _make_cellpose(project)
-
-    # nuclei + fluorescence → CellPose (preferred) or StarDist
-    if "nuclei" in target and staining in ("fluorescence", "fluo", ""):
-        if _HAS_CELLPOSE:
-            return _make_cellpose(project)
-        if _HAS_STARDIST:
-            sd = StarDistSegmenter(model_name="2D_versatile_fluo")
-            _apply_project_params(sd, project)
-            return sd
-        raise RuntimeError(
-            "Neither cellpose nor stardist is installed. "
-            "Install at least one: pip install cellpose"
-        )
-
-    # whole_cells, organelles/EM, custom → CellPose cpsam
-    return _make_cellpose(project)
+    modality, structures, vram_gb = _project_selection_properties(project)
+    return recommend_model_from_properties(modality, structures, vram_gb)
 
 
-def _make_cellpose(project: dict[str, Any] | None) -> CellPoseSegmenter:
-    seg = CellPoseSegmenter()
-    params = seg.get_default_params(project)
-    seg._diameter = params.get("diameter")
-    seg._flow_threshold = params.get("flow_threshold", 0.4)
-    seg._cellprob_threshold = params.get("cellprob_threshold", 0.0)
-    seg._channels = params.get("channels", [0, 0])
+def _project_selection_properties(
+    project: dict[str, Any],
+) -> tuple[str, list[str], float | None]:
+    """Normalize current and legacy project dictionaries for model selection."""
+    modality = str(project.get("modality") or "")
+    structures = project.get("structures") or []
+    if not isinstance(structures, list):
+        structures = [str(structures)]
+
+    imaging = project.get("imaging") or {}
+    if not modality and isinstance(imaging, dict):
+        staining = str(imaging.get("staining") or "").lower()
+        if staining in ("he", "h&e"):
+            modality = "H&E"
+        elif staining in ("fluo", "fluorescence"):
+            modality = "fluorescence"
+
+    if not structures and isinstance(imaging, dict):
+        target = str(imaging.get("segmentation_target") or "")
+        if target:
+            structures = [target]
+
+    compute = project.get("compute") or {}
+    vram_gb = None
+    if isinstance(compute, dict) and compute.get("vram_gb") is not None:
+        vram_gb = float(compute["vram_gb"])
+
+    return modality or "unknown", [str(s) for s in structures], vram_gb
+
+
+def _instantiate_recommended_segmenter(
+    backend: str,
+    params: dict[str, Any],
+    project: dict[str, Any] | None,
+    *,
+    allow_fallback: bool,
+) -> Segmenter:
+    """Instantiate a backend from recommendation params with optional fallback."""
+    backend = backend.lower()
+    try:
+        if backend == "stardist":
+            return _make_stardist(params)
+        if backend == "cellpose":
+            return _make_cellpose(project, params)
+    except ImportError:
+        if allow_fallback:
+            return _make_fallback_segmenter(project, attempted_backend=backend)
+        raise
+    raise ValueError(f"Unsupported segmentation backend: {backend}")
+
+
+def _make_cellpose(
+    project: dict[str, Any] | None,
+    params: dict[str, Any] | None = None,
+) -> CellPoseSegmenter:
+    params = dict(params or {})
+    model_name = str(params.pop("model_name", "cpsam"))
+    seg = CellPoseSegmenter(
+        model_name=model_name,
+        diameter=params.get("diameter"),
+        flow_threshold=params.get("flow_threshold", 0.4),
+        cellprob_threshold=params.get("cellprob_threshold", 0.0),
+        channels=params.get("channels"),
+        gpu=params.get("gpu", True),
+    )
+    default_params = seg.get_default_params(project)
+    seg._diameter = default_params.get("diameter")
+    seg._flow_threshold = default_params.get("flow_threshold", 0.4)
+    seg._cellprob_threshold = default_params.get("cellprob_threshold", 0.0)
+    seg._channels = default_params.get("channels", [0, 0])
+    seg._gpu = default_params.get("gpu", True)
     return seg
 
 
-def _apply_project_params(seg: Segmenter, project: dict[str, Any] | None) -> None:
-    """Apply project-derived params back onto a segmenter instance (in-place)."""
-    # StarDist has no mutable params to apply from project currently
-    pass
+def _make_stardist(params: dict[str, Any] | None = None) -> StarDistSegmenter:
+    params = dict(params or {})
+    return StarDistSegmenter(
+        model_name=str(params.get("model_name", "2D_versatile_fluo")),
+        prob_thresh=params.get("prob_thresh"),
+        nms_thresh=params.get("nms_thresh"),
+        scale=params.get("scale"),
+    )
+
+
+def _make_fallback_segmenter(
+    project: dict[str, Any] | None,
+    *,
+    attempted_backend: str,
+) -> Segmenter:
+    """Fallback to an installed backend when the recommended optional dep is absent."""
+    if attempted_backend != "cellpose" and _HAS_CELLPOSE:
+        return _make_cellpose(project)
+    if attempted_backend != "stardist" and _HAS_STARDIST:
+        return _make_stardist()
+    raise RuntimeError(
+        "Neither cellpose nor stardist is installed. Install at least one backend."
+    )
 
 
 # ── I/O helpers ────────────────────────────────────────────────────────────────
@@ -481,9 +546,9 @@ def run_segmentation(
     # ── Instantiate segmenter ──────────────────────────────────────────────────
     segmenter: Segmenter
     if model == "cellpose":
-        segmenter = CellPoseSegmenter()
+        segmenter = _make_cellpose(project)
     elif model == "stardist":
-        segmenter = StarDistSegmenter()
+        segmenter = _make_stardist()
     else:
         segmenter = select_segmenter(project)
 

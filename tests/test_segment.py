@@ -172,21 +172,21 @@ class TestSelectSegmenter:
             result = seg_mod.select_segmenter(None)
         assert result.__class__.__name__ == "CellPoseSegmenter"
 
-    def test_nuclei_fluorescence_prefers_cellpose(self) -> None:
-        """Nuclei + fluorescence → CellPose when cellpose is available."""
+    def test_nuclei_fluorescence_prefers_stardist(self) -> None:
+        """Nuclei + fluorescence uses the shared project recommendation matrix."""
         from unittest.mock import MagicMock, patch
 
         project = {"imaging": {"segmentation_target": "nuclei", "staining": "fluorescence"}}
-        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
-            "microagent.core.segment._cp_models"
-        ) as mock_cp:
-            mock_cp.CellposeModel.return_value = MagicMock()
-            import microagent.core.segment as seg_mod
+        import microagent.core.segment as seg_mod
 
-            seg_mod._HAS_CELLPOSE = True
-            seg_mod._cp_models = mock_cp
+        mock_sd_cls = MagicMock()
+        mock_sd_cls.from_pretrained.return_value = MagicMock()
+        with patch("microagent.core.segment._HAS_STARDIST", True), patch(
+            "microagent.core.segment._StarDist2D", mock_sd_cls
+        ):
             result = seg_mod.select_segmenter(project)
-        assert result.__class__.__name__ == "CellPoseSegmenter"
+        assert result.__class__.__name__ == "StarDistSegmenter"
+        assert result._model_name == "2D_versatile_fluo"
 
     def test_nuclei_he_prefers_stardist(self) -> None:
         """Nuclei + H&E → StarDist when stardist is available."""
@@ -202,6 +202,7 @@ class TestSelectSegmenter:
 
         orig_has_sd = seg_mod._HAS_STARDIST
         orig_has_cp = seg_mod._HAS_CELLPOSE
+        had_sd_attr = hasattr(seg_mod, "_StarDist2D")
         orig_sd = getattr(seg_mod, "_StarDist2D", None)
         orig_cp = seg_mod._cp_models
         try:
@@ -213,7 +214,7 @@ class TestSelectSegmenter:
         finally:
             seg_mod._HAS_STARDIST = orig_has_sd
             seg_mod._HAS_CELLPOSE = orig_has_cp
-            if orig_sd is None:
+            if not had_sd_attr:
                 # Remove the attribute we injected
                 try:
                     delattr(seg_mod, "_StarDist2D")
@@ -241,6 +242,7 @@ class TestSelectSegmenter:
             seg_mod._cp_models = mock_cp
             result = seg_mod.select_segmenter(project)
         assert result.__class__.__name__ == "CellPoseSegmenter"
+        assert result._model_name == "cyto3"
 
     def test_he_falls_back_to_cellpose_when_no_stardist(self) -> None:
         """Nuclei + H&E falls back to CellPose when StarDist is not installed."""
@@ -282,6 +284,146 @@ class TestStarDistUnavailable:
 
 
 class TestRunSegmentation:
+    def test_project_recommended_stardist_model_is_used(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """project.yaml recommended_model/recommended_params drive auto segmentation."""
+        from unittest.mock import MagicMock, patch
+
+        import yaml
+
+        from microagent.core.segment import run_segmentation
+
+        project_path = tmp_path / "project.yaml"
+        project_path.write_text(
+            yaml.safe_dump(
+                {
+                    "recommended_model": "stardist",
+                    "recommended_params": {
+                        "model_name": "2D_versatile_he",
+                        "prob_thresh": 0.5,
+                        "nms_thresh": 0.4,
+                    },
+                }
+            )
+        )
+        stardist_model = MagicMock()
+        stardist_model.predict_instances.return_value = (
+            np.ones((256, 256), dtype=np.int32),
+            {},
+        )
+        stardist_cls = MagicMock()
+        stardist_cls.from_pretrained.return_value = stardist_model
+
+        with patch("microagent.core.segment._HAS_STARDIST", True), patch(
+            "microagent.core.segment._StarDist2D", stardist_cls
+        ):
+            result = run_segmentation(
+                single_image_dir,
+                tmp_path / "masks",
+                project_path=project_path,
+            )
+
+        stardist_cls.from_pretrained.assert_called_once_with("2D_versatile_he")
+        assert result.model_info["backend"] == "stardist"
+        assert result.model_info["model_name"] == "2D_versatile_he"
+        assert result.parameters["prob_thresh"] == 0.5
+        assert result.parameters["nms_thresh"] == 0.4
+
+    def test_explicit_model_overrides_project_recommendation(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """An explicit model backend ignores project.yaml recommended_model."""
+        from unittest.mock import MagicMock, patch
+
+        import yaml
+
+        from microagent.core.segment import run_segmentation
+
+        project_path = tmp_path / "project.yaml"
+        project_path.write_text(
+            yaml.safe_dump(
+                {
+                    "recommended_model": "stardist",
+                    "recommended_params": {"model_name": "2D_versatile_he"},
+                }
+            )
+        )
+        cellpose_model = MagicMock()
+        cellpose_model.eval.return_value = (
+            np.ones((256, 256), dtype=np.int32),
+            None,
+            None,
+        )
+        cellpose_mod = MagicMock()
+        cellpose_mod.CellposeModel.return_value = cellpose_model
+
+        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
+            "microagent.core.segment._cp_models", cellpose_mod
+        ):
+            result = run_segmentation(
+                single_image_dir,
+                tmp_path / "masks",
+                model="cellpose",
+                project_path=project_path,
+            )
+
+        cellpose_mod.CellposeModel.assert_called_once()
+        assert result.model_info["backend"] == "cellpose"
+        assert result.model_info["model_name"] == "cpsam"
+
+    def test_explicit_diameter_overrides_project_recommendation_params(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """An explicit diameter overrides recommended CellPose diameter."""
+        from unittest.mock import MagicMock, patch
+
+        import yaml
+
+        from microagent.core.segment import run_segmentation
+
+        project_path = tmp_path / "project.yaml"
+        project_path.write_text(
+            yaml.safe_dump(
+                {
+                    "recommended_model": "cellpose",
+                    "recommended_params": {
+                        "model_name": "cyto2",
+                        "diameter": 21,
+                        "flow_threshold": 0.4,
+                    },
+                }
+            )
+        )
+        cellpose_model = MagicMock()
+        cellpose_model.eval.return_value = (
+            np.ones((256, 256), dtype=np.int32),
+            None,
+            None,
+        )
+        cellpose_mod = MagicMock()
+        cellpose_mod.CellposeModel.return_value = cellpose_model
+
+        with patch("microagent.core.segment._HAS_CELLPOSE", True), patch(
+            "microagent.core.segment._cp_models", cellpose_mod
+        ):
+            result = run_segmentation(
+                single_image_dir,
+                tmp_path / "masks",
+                project_path=project_path,
+                diameter=42,
+            )
+
+        assert result.model_info["model_name"] == "cyto2"
+        assert result.parameters["diameter"] == 42
+        assert cellpose_model.eval.call_args.kwargs["diameter"] == 42
+
     @pytest.mark.slow
     def test_produces_tiff_masks(self, multi_image_dir: Path, tmp_path: Path) -> None:
         """run_segmentation() writes a .tif mask per input image."""
@@ -358,6 +500,58 @@ runner = CliRunner()
 
 
 class TestSegmentCLI:
+    def test_segment_cli_forwards_explicit_model_and_diameter(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """CLI --model and --diameter are forwarded as explicit overrides."""
+        from microagent.core.segment import SegmentationResult
+        import microagent.core.segment as seg_mod
+
+        img_dir = tmp_path / "images"
+        img_dir.mkdir()
+        project_path = tmp_path / "project.yaml"
+        project_path.write_text("recommended_model: stardist\nrecommended_params: {}\n")
+        captured: dict[str, object] = {}
+
+        def fake_run_segmentation(**kwargs: object) -> SegmentationResult:
+            captured.update(kwargs)
+            return SegmentationResult(
+                mask_paths=[],
+                model_info={
+                    "backend": "cellpose",
+                    "model_name": "cpsam",
+                    "parameters": {"diameter": kwargs.get("diameter")},
+                },
+                parameters={"diameter": kwargs.get("diameter")},
+                elapsed_seconds=0.0,
+            )
+
+        monkeypatch.setattr(seg_mod, "run_segmentation", fake_run_segmentation)
+
+        result = runner.invoke(
+            app,
+            [
+                "--no-track",
+                "segment",
+                str(img_dir),
+                "--output",
+                str(tmp_path / "masks"),
+                "--project",
+                str(project_path),
+                "--model",
+                "cellpose",
+                "--diameter",
+                "42",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["model"] == "cellpose"
+        assert captured["diameter"] == 42
+        assert captured["project_path"] == project_path
+
     @pytest.mark.slow
     def test_segment_cli_cellpose(self, multi_image_dir: Path, tmp_path: Path) -> None:
         """CLI segment subcommand exits 0 and writes masks when using cellpose."""

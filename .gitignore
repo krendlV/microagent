@@ -57,7 +57,16 @@ htmlcov/
 # Logs / outputs
 *.log
 outputs/
+output/
 results/
+result/
+test_output/
+test_outputs/
+masks/
+overlays/
+plots/
+report.html
+*_reproducibility.zip
 
 # Sample / demo data (not tracked — regenerate with `microagent demo`)
 sample_data/

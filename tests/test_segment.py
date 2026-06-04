@@ -52,6 +52,49 @@ def multi_image_dir(tmp_path: Path) -> Path:
     return img_dir
 
 
+# ── Unit tests for channel reduction ──────────────────────────────────────────
+
+
+class TestFirstChannel2D:
+    """`_first_channel_2d` must extract a channel, never a row, regardless of layout."""
+
+    def test_grayscale_passthrough(self) -> None:
+        from microagent.core.segment import _first_channel_2d
+
+        img = _make_circle_image((96, 80))
+        out = _first_channel_2d(img)
+        assert out.shape == (96, 80)
+        assert out.dtype == np.float32
+
+    def test_channel_first(self) -> None:
+        from microagent.core.segment import _first_channel_2d
+
+        ch0 = _make_circle_image((96, 80))
+        img = np.stack([ch0, np.zeros((96, 80), dtype=np.uint16)])  # (2, H, W)
+        out = _first_channel_2d(img)
+        assert out.shape == (96, 80)
+        np.testing.assert_array_equal(out, ch0.astype(np.float32))
+
+    def test_channel_last_rgb(self) -> None:
+        """An (H, W, 3) RGB array must return channel 0, not the first pixel row."""
+        from microagent.core.segment import _first_channel_2d
+
+        ch0 = _make_circle_image((96, 80))
+        img = np.stack(
+            [ch0, np.zeros((96, 80), np.uint16), np.zeros((96, 80), np.uint16)], axis=-1
+        )
+        assert img.shape == (96, 80, 3)
+        out = _first_channel_2d(img)
+        assert out.shape == (96, 80)
+        np.testing.assert_array_equal(out, ch0.astype(np.float32))
+
+    def test_unsupported_ndim_raises(self) -> None:
+        from microagent.core.segment import _first_channel_2d
+
+        with pytest.raises(ValueError, match="Unsupported image shape"):
+            _first_channel_2d(np.zeros((2, 2, 2, 2)))
+
+
 # ── Unit tests for CellPoseSegmenter ──────────────────────────────────────────
 
 

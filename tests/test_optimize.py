@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -213,6 +214,50 @@ class TestCreateObjective:
 
 
 class TestRunOptimization:
+    def test_save_json_round_trip(self, tmp_path: Path) -> None:
+        result = OptimizationResult(
+            best_params={"diameter": 42.5, "model": "cyto3"},
+            best_value=0.82,
+            baseline_value=0.71,
+            improvement=0.11,
+            trials=[
+                TrialRecord(
+                    number=0,
+                    params={"diameter": 30.0, "flow_threshold": 0.4},
+                    value=0.75,
+                ),
+                TrialRecord(
+                    number=1,
+                    params={"diameter": 42.5, "flow_threshold": 0.3},
+                    value=0.82,
+                ),
+            ],
+            study_path=tmp_path / "optuna_study.pkl",
+        )
+
+        out = tmp_path / "optimization.json"
+        result.save_json(out)
+
+        loaded = json.loads(out.read_text(encoding="utf-8"))
+        assert loaded == {
+            "best_params": {"diameter": 42.5, "model": "cyto3"},
+            "best_value": 0.82,
+            "baseline_value": 0.71,
+            "improvement": 0.11,
+            "trials": [
+                {
+                    "number": 0,
+                    "params": {"diameter": 30.0, "flow_threshold": 0.4},
+                    "value": 0.75,
+                },
+                {
+                    "number": 1,
+                    "params": {"diameter": 42.5, "flow_threshold": 0.3},
+                    "value": 0.82,
+                },
+            ],
+        }
+
     def test_smoke_returns_result_structure(
         self, opt_dirs: tuple[Path, Path]
     ) -> None:
@@ -409,10 +454,11 @@ class TestSearchSpaceWithProject:
 
 
 class TestOptimizeCLI:
-    def test_optimize_cli_smoke(self, opt_dirs: tuple[Path, Path]) -> None:
+    def test_optimize_cli_smoke(self, opt_dirs: tuple[Path, Path], tmp_path: Path) -> None:
         """CLI optimize subcommand completes and prints best params."""
         img_dir, gt_dir = opt_dirs
         runner = CliRunner()
+        output_json = tmp_path / "optimization.json"
 
         fake_mask = np.zeros((128, 128), dtype=np.int32)
         fake_mask[10:40, 10:40] = 1
@@ -429,11 +475,14 @@ class TestOptimizeCLI:
                     "--trials", "3",
                     "--metric", "f1",
                     "--model", "cellpose",
+                    "--output-json", str(output_json),
                 ],
             )
 
         assert result.exit_code == 0, result.output
         assert "Best Hyperparameters" in result.output
+        assert "Optimization JSON saved" in result.output
+        assert output_json.exists()
 
     def test_optimize_cli_missing_image_dir(self, tmp_path: Path) -> None:
         runner = CliRunner()

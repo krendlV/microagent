@@ -414,6 +414,11 @@ def optimize(
     iou: float = typer.Option(0.5, "--iou", help="IoU threshold for F1/precision/recall"),
     seed: int = typer.Option(42, "--seed", help="Random seed"),
     project: Path | None = typer.Option(None, "--project", "-p", help="Path to project.yaml"),
+    output_json: Path = typer.Option(
+        Path("optimization.json"),
+        "--output-json",
+        help="Save optimization summary JSON to this path",
+    ),
 ) -> None:
     """Optimise segmentation hyperparameters with Optuna TPE search."""
     from rich.live import Live
@@ -430,6 +435,7 @@ def optimize(
         iou=iou,
         seed=seed,
         project=project,
+        output_json=output_json,
     )
     config = OptimizeConfig(
         image_dir=image_dir,
@@ -508,6 +514,12 @@ def optimize(
             console.print(f"[bold red]Error:[/bold red] {exc}")
             raise typer.Exit(1) from None
 
+    try:
+        result.save_json(output_json)
+    except OSError as exc:
+        console.print(f"[bold red]Could not save optimization JSON:[/bold red] {exc}")
+        raise typer.Exit(1) from None
+
     # ── Final summary ─────────────────────────────────────────────────────────
     delta = result.improvement
     delta_colour = "green" if delta > 1e-6 else ("red" if delta < -1e-6 else "dim")
@@ -525,6 +537,7 @@ def optimize(
     )
     if result.study_path:
         console.print(f"[dim]Study saved → {result.study_path}[/dim]")
+    console.print(f"[green]✓ Optimization JSON saved →[/green] {output_json}")
     _print_logged_run(tracked_results)
 
 

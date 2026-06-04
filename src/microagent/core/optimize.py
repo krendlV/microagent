@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import pickle
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -91,6 +92,29 @@ class OptimizationResult:
     improvement: float
     trials: list[TrialRecord] = field(default_factory=list)
     study_path: Path | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the compact JSON-serialisable optimization summary."""
+        return {
+            "best_params": self.best_params,
+            "best_value": float(self.best_value),
+            "baseline_value": float(self.baseline_value),
+            "improvement": float(self.improvement),
+            "trials": [
+                {
+                    "number": trial.number,
+                    "params": trial.params,
+                    "value": float(trial.value),
+                }
+                for trial in self.trials
+            ],
+        }
+
+    def save_json(self, path: Path) -> None:
+        """Write the optimization summary to *path* as formatted JSON."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────

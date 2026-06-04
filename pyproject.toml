@@ -34,7 +34,6 @@ bioimage = ["bioimageio.core"]
 tracking = ["optuna>=4.8", "mlflow"]
 mcp = ["mcp>=1.18.0"]
 dev = [
-    "optuna>=4.8",
     "pytest",
     "pytest-cov",
     "ruff",

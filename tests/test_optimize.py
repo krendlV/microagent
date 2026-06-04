@@ -13,16 +13,16 @@ from typer.testing import CliRunner
 
 from microagent.cli import app
 from microagent.core.optimize import (
-    OptimizeConfig,
     OptimizationResult,
+    OptimizeConfig,
     TrialRecord,
-    _build_segmenter,
     _get_metric_value,
-    _match_gt_paths,
     create_objective,
     run_optimization,
     select_search_space,
 )
+
+optuna = pytest.importorskip("optuna")
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -373,7 +373,9 @@ class TestSearchSpaceWithProject:
             "microagent.core.optimize._load_project", return_value=project
         ), patch(
             "microagent.core.optimize._build_segmenter",
-            return_value=MagicMock(predict=MagicMock(return_value=np.zeros((128, 128), dtype=np.int32))),
+            return_value=MagicMock(
+                predict=MagicMock(return_value=np.zeros((128, 128), dtype=np.int32))
+            ),
         ):
             result = run_optimization(config)
 
@@ -393,7 +395,9 @@ class TestSearchSpaceWithProject:
 
         with patch(
             "microagent.core.optimize._build_segmenter",
-            return_value=MagicMock(predict=MagicMock(return_value=np.zeros((128, 128), dtype=np.int32))),
+            return_value=MagicMock(
+                predict=MagicMock(return_value=np.zeros((128, 128), dtype=np.int32))
+            ),
         ):
             result = run_optimization(config)
 

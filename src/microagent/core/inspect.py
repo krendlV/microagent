@@ -160,6 +160,7 @@ def _generate_thumbnail(images: list[np.ndarray], out_path: Path) -> None:
 def inspect_directory(
     path: Path,
     channels: list[int] | None = None,
+    thumbnail_dir: Path | None = None,
 ) -> InspectionReport:
     """Inspect a directory of microscopy images and return a QC report.
 
@@ -170,6 +171,9 @@ def inspect_directory(
     channels : list[int] | None
         Channel indices to compute statistics for. If None, all channels
         are used.
+    thumbnail_dir : Path | None
+        Directory to write the thumbnail montage into. If None, no thumbnail
+        is generated. Never write into *path* to avoid mutating the input.
 
     Returns
     -------
@@ -283,8 +287,8 @@ def inspect_directory(
     # Thumbnail montage
     thumbnail_paths: list[str] = []
     thumb_imgs = [img for _, img in loaded[:9]]
-    if thumb_imgs:
-        thumb_out = path / "microagent_inspection" / "thumbnail_montage.png"
+    if thumb_imgs and thumbnail_dir is not None:
+        thumb_out = Path(thumbnail_dir) / "thumbnail_montage.png"
         try:
             _generate_thumbnail(thumb_imgs, thumb_out)
             thumbnail_paths.append(str(thumb_out))

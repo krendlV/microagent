@@ -86,6 +86,229 @@ def _print_logged_run(results: dict[str, Any] | None) -> None:
 
 
 @app.command()
+def run(
+    image_dir: Path = typer.Argument(..., help="Directory containing microscopy images"),
+    project: Path | None = typer.Option(
+        None, "--project", "-p", help="Path to project.yaml for model selection and defaults"
+    ),
+    ground_truth: Path | None = typer.Option(
+        None,
+        "--ground-truth",
+        "-g",
+        help="Directory of ground-truth masks; enables evaluation (F1, PQ) when provided",
+    ),
+    output: Path = typer.Option(
+        Path("microagent_output"),
+        "--output",
+        "-o",
+        help="Directory for all outputs: masks/, overlays/, report.html, JSON summaries",
+    ),
+    open_report: bool = typer.Option(
+        True,
+        "--open/--no-open",
+        help="Open report.html in a browser when done (skipped in CI / headless environments)",
+    ),
+) -> None:
+    """Run the full pipeline on a directory of images.
+
+    Runs inspect → segment → (evaluate) → overlays → report in one command,
+    writing every artifact under --output.  The only one-liner a new user needs.
+    """
+    import os
+    import sys
+
+    from microagent.core.inspect import inspect_directory
+    from microagent.core.segment import run_segmentation
+    from microagent.viz.overlays import save_overlay_montage
+    from microagent.viz.plots import plot_metrics_summary, plot_object_size_distribution
+    from microagent.viz.report import generate_report, load_report_data
+
+    params = _serializable_params(
+        image_dir=image_dir,
+        output=output,
+        project=project,
+        ground_truth=ground_truth,
+    )
+
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    masks_dir = output / "masks"
+    overlays_dir = output / "overlays"
+    plots_dir = output / "plots"
+    for d in (masks_dir, overlays_dir, plots_dir):
+        d.mkdir(exist_ok=True)
+
+    console.print(
+        Panel(
+            f"[bold]MicroAgent[/bold] · full pipeline\n\n"
+            f"  input   {image_dir}\n"
+            f"  output  {output}",
+            border_style="blue",
+        )
+    )
+
+    # ── 1. Inspect ──────────────────────────────────────────────────────────
+    with console.status("[bold green]Inspecting images …"):
+        insp = inspect_directory(image_dir, thumbnail_dir=output / "microagent_inspection")
+    insp_json = output / "inspection.json"
+    insp.save_json(insp_json)
+    qc_note = f"  [yellow]{len(insp.issues)} QC issues[/yellow]" if insp.issues else ""
+    console.print(
+        f"[green]✓ Inspect:[/green] {insp.file_count} images, "
+        f"{insp.channel_count} channels{qc_note}"
+    )
+
+    # ── 2. Segment ──────────────────────────────────────────────────────────
+    with console.status("[bold green]Segmenting …"):
+        try:
+            seg = run_segmentation(
+                image_dir=image_dir,
+                output_dir=masks_dir,
+                model="auto",
+                project_path=project,
+            )
+        except (FileNotFoundError, RuntimeError) as exc:
+            console.print(f"[bold red]Segmentation error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+    seg_json = output / "segmentation.json"
+    seg.save_json(seg_json)
+    total_cells = sum(s.n_labels for s in seg.per_image_stats)
+    console.print(
+        f"[green]✓ Segment:[/green] {len(seg.mask_paths)} masks · "
+        f"{total_cells} cells ({seg.elapsed_seconds:.1f}s)"
+    )
+
+    # ── 3. Evaluate (optional) ──────────────────────────────────────────────
+    ev_json: Path | None = None
+    ev = None
+    f1: float | None = None
+    if ground_truth:
+        from microagent.core.evaluate import evaluate_masks
+
+        with console.status("[bold green]Evaluating …"):
+            ev = evaluate_masks(pred_dir=masks_dir, gt_dir=ground_truth)
+        ev_json = output / "metrics.json"
+        ev.save_json(ev_json)
+        f1 = next(
+            (tm.f1 for tm in ev.summary.per_threshold if abs(tm.threshold - 0.5) < 1e-9),
+            0.0,
+        )
+        console.print(
+            f"[green]✓ Evaluate:[/green] F1@0.5={f1:.3f}  "
+            f"PQ={ev.summary.panoptic_quality:.3f}"
+        )
+    else:
+        console.print(
+            "[dim]  ↳ no ground truth → skipped evaluation; "
+            "pass --ground-truth <dir> to get F1/PQ metrics[/dim]"
+        )
+
+    # ── 4. Overlays + plots ─────────────────────────────────────────────────
+    try:
+        import tifffile
+
+        imgs: list = []
+        masks_list: list = []
+        for mask_path_str in seg.mask_paths[:9]:
+            mask_path = Path(mask_path_str)
+            img_stem = mask_path.stem.replace("_mask", "")
+            for ext in (".tif", ".tiff", ".png"):
+                img_path = image_dir / (img_stem + ext)
+                if img_path.exists():
+                    imgs.append(tifffile.imread(str(img_path)))
+                    masks_list.append(tifffile.imread(str(mask_path)))
+                    break
+        if imgs:
+            save_overlay_montage(
+                imgs,
+                masks_list,
+                overlays_dir / "overlay_montage.png",
+                ncols=min(3, len(imgs)),
+            )
+        if ev is not None:
+            plot_metrics_summary(ev, plots_dir / "metrics_summary.png")
+        mask_paths_sorted = sorted(masks_dir.glob("*_mask.tif"))
+        if mask_paths_sorted:
+            first_mask = tifffile.imread(str(mask_paths_sorted[0]))
+            plot_object_size_distribution(first_mask, plots_dir / "object_sizes.png")
+        console.print("[green]✓ Overlays + plots generated[/green]")
+    except Exception as exc:
+        console.print(f"[yellow]Overlays/plots skipped: {exc}[/yellow]")
+
+    # ── 5. Report ────────────────────────────────────────────────────────────
+    report_path = output / "report.html"
+    with console.status("[bold green]Building report …"):
+        try:
+            data = load_report_data(
+                inspection_json=insp_json,
+                segmentation_json=seg_json,
+                evaluation_json=ev_json,
+                project_yaml=project,
+                overlay_dir=overlays_dir if overlays_dir.is_dir() else None,
+                plots_dir=plots_dir if plots_dir.is_dir() else None,
+                command=f"microagent run {image_dir}",
+            )
+            generate_report(data, report_path)
+        except Exception as exc:
+            console.print(f"[bold red]Report generation failed:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+
+    # ── Tracking (opt-out) ───────────────────────────────────────────────────
+    if not _TRACKING_DISABLED:
+        try:
+            from microagent.fair.provenance import collect_metadata
+            from microagent.fair.tracking import ExperimentTracker
+
+            meta = collect_metadata(
+                command=_command_str("run", params, positional=("image_dir",)),
+                parameters=params,
+                data_path=image_dir,
+            )
+            run_results: dict[str, Any] = {
+                "n_images": insp.file_count,
+                "n_cells": total_cells,
+                "had_evaluation": ev is not None,
+                "f1_at_05": f1,
+                "report_path": str(report_path),
+                "output_dir": str(output),
+            }
+            run_id = ExperimentTracker().log_run(meta, run_results)
+            console.print(f"[dim]run {run_id} logged → experiments.jsonl[/dim]")
+        except Exception:
+            pass
+
+    # ── Summary ──────────────────────────────────────────────────────────────
+    tip = (
+        "\n\n[dim]  Tip: pass --ground-truth <dir> to add F1/PQ evaluation[/dim]"
+        if ground_truth is None
+        else ""
+    )
+    console.print(
+        Panel(
+            f"[bold green]Done.[/bold green]  "
+            f"{insp.file_count} images · {total_cells} cells · report → {report_path}{tip}",
+            title="Pipeline Complete",
+            border_style="green",
+        )
+    )
+
+    if open_report:
+        _ci = bool(os.environ.get("CI"))
+        _no_display = sys.platform.startswith("linux") and not (
+            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+        )
+        if not _ci and not _no_display:
+            try:
+                import webbrowser
+
+                url = report_path.resolve().as_uri()
+                console.print(f"[dim]Opening {url} …[/dim]")
+                webbrowser.open(url)
+            except Exception:
+                pass
+
+
+@app.command()
 def inspect(
     directory: Path = typer.Argument(..., help="Directory containing images to inspect"),
     channels: str | None = typer.Option(
@@ -111,8 +334,13 @@ def inspect(
             console.print(f"[bold red]Invalid --channels value:[/bold red] {channels}")
             raise typer.Exit(1) from None
 
+    if output is not None:
+        thumb_dir = output.parent / "microagent_inspection"
+    else:
+        thumb_dir = Path.cwd() / "microagent_inspection"
+
     with console.status(f"[bold green]Inspecting {directory} …"):
-        report = inspect_directory(directory, channels=ch_list)
+        report = inspect_directory(directory, channels=ch_list, thumbnail_dir=thumb_dir)
 
     # ── Files table ──────────────────────────────────────────────────────────
     tbl = Table(title="Image Files", box=SIMPLE_HEAD, show_lines=False)
@@ -868,7 +1096,7 @@ def demo(
 
     # ── 2. Inspect ────────────────────────────────────────────────────────
     with console.status("[bold green]Running QC inspection …"):
-        insp = inspect_directory(image_dir)
+        insp = inspect_directory(image_dir, thumbnail_dir=output / "microagent_inspection")
     insp_json = output / "inspection.json"
     insp.save_json(insp_json)
     console.print(

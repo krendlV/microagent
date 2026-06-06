@@ -64,3 +64,8 @@ sample_data/
 demo_output/
 experiments.jsonl
 optuna_study.pkl
+
+# CLI output directories
+microagent_inspection/
+microagent_output/
+test_output/

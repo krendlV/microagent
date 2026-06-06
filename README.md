@@ -25,10 +25,7 @@ uv run microagent demo     # synthetic data → segment → evaluate → report.
 With your own images:
 
 ```bash
-uv run microagent init --data-dir /path/to/images   # create project.yaml (interactive)
-uv run microagent inspect /path/to/images           # QC check
-uv run microagent segment /path/to/images           # run segmentation → masks/
-uv run microagent report                            # generate report.html
+uv run microagent run /path/to/images   # inspect → segment → report in one step
 ```
 
 Every pipeline command logs a reproducible run to `experiments.jsonl`; bundle one up with

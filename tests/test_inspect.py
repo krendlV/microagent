@@ -46,10 +46,17 @@ class TestInspectBasic:
         report = inspect_directory(tmp_image_dir)
         assert report.issues == []
 
-    def test_thumbnail_created(self, tmp_image_dir):
-        report = inspect_directory(tmp_image_dir)
+    def test_thumbnail_created(self, tmp_image_dir, tmp_path):
+        thumb_dir = tmp_path / "thumbs"
+        report = inspect_directory(tmp_image_dir, thumbnail_dir=thumb_dir)
         assert len(report.thumbnail_paths) == 1
         assert Path(report.thumbnail_paths[0]).exists()
+        assert not (tmp_image_dir / "microagent_inspection").exists()
+
+    def test_no_thumbnail_without_dir(self, tmp_image_dir):
+        report = inspect_directory(tmp_image_dir)
+        assert report.thumbnail_paths == []
+        assert not (tmp_image_dir / "microagent_inspection").exists()
 
     def test_channel_filter(self, tmp_image_dir):
         report = inspect_directory(tmp_image_dir, channels=[0])

@@ -71,7 +71,50 @@ microagent demo --output ./my-demo --n-images 20 --no-browser
 
 ## First Run: Your Own Data
 
-### Step 1 — Initialize a project
+### One command — the quick path
+
+```bash
+microagent run /path/to/images
+```
+
+This single command runs the full pipeline — inspect → segment → overlays → report — and
+opens `microagent_output/report.html` in your browser when done.
+
+Options:
+
+```bash
+# Save everything to a custom directory
+microagent run /path/to/images --output ./results
+
+# Also evaluate against ground-truth masks (adds F1, PQ metrics to the report)
+microagent run /path/to/images --ground-truth /path/to/gt --output ./results
+
+# Use a project.yaml for model selection and parameters
+microagent run /path/to/images --project project.yaml
+
+# Skip opening the browser (useful in scripts / CI)
+microagent run /path/to/images --no-open
+```
+
+Output written under `--output` (default `microagent_output/`):
+
+| File | Contents |
+|------|----------|
+| `masks/` | Labeled TIFF masks, one per input image |
+| `overlays/` | Overlay montage PNG |
+| `plots/` | Metric charts (if evaluation was run) |
+| `inspection.json` | QC report |
+| `segmentation.json` | Per-image cell counts, model info, provenance |
+| `metrics.json` | F1, PQ per image (only when `--ground-truth` is given) |
+| `report.html` | Self-contained HTML report |
+
+---
+
+### Step-by-step — advanced / scripting use
+
+For finer control or scripting, each pipeline phase is also a separate command.
+
+#### Step 1 — Initialize a project (optional)
 
 ```bash
 microagent init --data-dir /path/to/images
@@ -89,7 +132,7 @@ It then creates `project.yaml` with a recommended model and parameters. You can 
 microagent init --data-dir /path/to/images --doc methods.md
 ```
 
-### Step 2 — Inspect your images
+#### Step 2 — Inspect your images
 
 ```bash
 microagent inspect /path/to/images
@@ -101,7 +144,7 @@ Reports file count, dimensions, intensity statistics per channel, and flags QC w
 microagent inspect /path/to/images -o qc_report.json
 ```
 
-### Step 3 — Segment
+#### Step 3 — Segment
 
 ```bash
 microagent segment /path/to/images
@@ -117,7 +160,7 @@ microagent segment /path/to/images --model cellpose --diameter 30
 microagent segment /path/to/images -o /path/to/masks
 ```
 
-### Step 4 — Evaluate (if you have ground truth)
+#### Step 4 — Evaluate (if you have ground truth)
 
 ```bash
 microagent evaluate masks/ /path/to/ground_truth/
@@ -125,7 +168,7 @@ microagent evaluate masks/ /path/to/ground_truth/
 
 Outputs F1, precision, recall, mean F1 across thresholds, and panoptic quality. Ground truth files are matched to predictions by filename stem.
 
-### Step 5 — Generate a report
+#### Step 5 — Generate a report
 
 ```bash
 microagent report

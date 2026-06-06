@@ -438,6 +438,121 @@ class TestSelectSegmenter:
         assert result.__class__.__name__ == "CellPoseSegmenter"
 
 
+# ── Poor-fit fallback warnings ────────────────────────────────────────────────
+
+
+class TestPoorFitFallbackWarning:
+    def test_warns_when_stardist_recommended_but_unavailable(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Warning is emitted when stardist is recommended but unavailable for H&E."""
+        from unittest.mock import MagicMock
+
+        import microagent.core.segment as seg_mod
+
+        project = {
+            "recommended_model": "stardist",
+            "recommended_params": {"model_name": "2D_versatile_he"},
+            "imaging": {"staining": "h&e", "segmentation_target": "nuclei"},
+        }
+        import yaml
+
+        project_path = tmp_path / "project.yaml"
+        project_path.write_text(yaml.safe_dump(project))
+
+        cellpose_model = MagicMock()
+        cellpose_model.eval.return_value = (np.zeros((256, 256), dtype=np.int32), None, None)
+        cellpose_mod = MagicMock()
+        cellpose_mod.CellposeModel.return_value = cellpose_model
+
+        warned: list[str] = []
+        monkeypatch.setattr(seg_mod, "_HAS_STARDIST", False)
+        monkeypatch.setattr(seg_mod, "_HAS_CELLPOSE", True)
+        monkeypatch.setattr(seg_mod, "_cp_models", cellpose_mod)
+        monkeypatch.setattr(
+            "microagent.core.cellpose_compat.console.print",
+            lambda msg, **_: warned.append(str(msg)),
+        )
+
+        result = seg_mod.run_segmentation(
+            single_image_dir, tmp_path / "masks", project_path=project_path
+        )
+
+        assert result.model_info["backend"] == "cellpose", "Should have fallen back to cellpose"
+        assert any("stardist" in w.lower() for w in warned), f"No stardist warning found: {warned}"
+        assert any("poor fit" in w.lower() for w in warned), f"No 'poor fit' in warnings: {warned}"
+
+    def test_no_warning_when_recommended_backend_is_used(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No fallback warning when the recommended backend is available."""
+        from unittest.mock import MagicMock
+
+        import microagent.core.segment as seg_mod
+
+        project = {
+            "recommended_model": "cellpose",
+            "recommended_params": {"model_name": "cyto3"},
+        }
+        import yaml
+
+        project_path = tmp_path / "project.yaml"
+        project_path.write_text(yaml.safe_dump(project))
+
+        cellpose_model = MagicMock()
+        cellpose_model.eval.return_value = (np.zeros((256, 256), dtype=np.int32), None, None)
+        cellpose_mod = MagicMock()
+        cellpose_mod.CellposeModel.return_value = cellpose_model
+
+        warned: list[str] = []
+        monkeypatch.setattr(seg_mod, "_HAS_CELLPOSE", True)
+        monkeypatch.setattr(seg_mod, "_cp_models", cellpose_mod)
+        monkeypatch.setattr(
+            "microagent.core.cellpose_compat.console.print",
+            lambda msg, **_: warned.append(str(msg)),
+        )
+
+        seg_mod.run_segmentation(
+            single_image_dir, tmp_path / "masks", project_path=project_path
+        )
+
+        fallback_warns = [w for w in warned if "unavailable" in w.lower()]
+        assert not fallback_warns, f"Unexpected fallback warning: {fallback_warns}"
+
+    def test_warns_when_microsam_recommended_but_unavailable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Warning is emitted when micro-SAM is recommended for EM but unavailable."""
+        import microagent.core.segment as seg_mod
+
+        project = {"modality": "EM", "structures": ["organelles"]}
+        from unittest.mock import MagicMock
+
+        cellpose_mod = MagicMock()
+        cellpose_mod.CellposeModel.return_value = MagicMock()
+
+        warned: list[str] = []
+        monkeypatch.setattr(seg_mod, "_HAS_MICROSAM", False)
+        monkeypatch.setattr(seg_mod, "_HAS_CELLPOSE", True)
+        monkeypatch.setattr(seg_mod, "_cp_models", cellpose_mod)
+        monkeypatch.setattr(
+            "microagent.core.cellpose_compat.console.print",
+            lambda msg, **_: warned.append(str(msg)),
+        )
+
+        result = seg_mod.select_segmenter(project)
+
+        assert result.__class__.__name__ == "CellPoseSegmenter"
+        assert any("micro" in w.lower() and "unavailable" in w.lower() for w in warned)
+
+
 # ── StarDist unavailability ────────────────────────────────────────────────────
 
 

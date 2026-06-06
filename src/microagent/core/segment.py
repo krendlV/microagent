@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from microagent.core.cellpose_compat import (
+    console,
     is_cellpose_v4_or_newer,
     warn_cellpose_v4_channels_ignored,
 )
@@ -684,6 +685,63 @@ def _tuple2_or_none(value: Any) -> tuple[int, int] | None:
     raise ValueError(f"Expected a pair of integers, got {value!r}")
 
 
+_BACKEND_DISPLAY: dict[str, str] = {
+    "cellpose": "CellPose",
+    "stardist": "StarDist",
+    "micro_sam": "micro-SAM",
+    "microsam": "micro-SAM",
+}
+
+_INSTALL_HINTS: dict[str, str] = {
+    "stardist": "pip install microagent[stardist]",
+    "micro_sam": "conda install -c conda-forge micro_sam",
+    "microsam": "conda install -c conda-forge micro_sam",
+}
+
+
+def _poor_fit_context(recommended: str, project: dict[str, Any] | None) -> str:
+    """Return a short clause describing why the fallback is a poor fit, or ''."""
+    if project is None:
+        return ""
+    imaging = project.get("imaging") or {}
+    modality = str(project.get("modality") or "").lower()
+    staining = str(imaging.get("staining") or "").lower()
+    target = str(imaging.get("segmentation_target") or "").lower()
+    structures = [str(s).lower() for s in (project.get("structures") or [])]
+
+    if recommended == "stardist":
+        if staining in ("he", "h&e"):
+            return ", which is a poor fit for H&E"
+        if "nuclei" in target or "nuclei" in structures:
+            return ", which is a poor fit for nuclei segmentation"
+        return ", which may be a poor fit"
+
+    if recommended in ("micro_sam", "microsam"):
+        if modality == "em":
+            return ", which is a poor fit for EM data"
+        if "organelle" in target or any("organelle" in s for s in structures):
+            return ", which is a poor fit for organelle segmentation"
+        return ", which may be a poor fit"
+
+    return ", which may be a poor fit"
+
+
+def _warn_poor_fit_fallback(
+    recommended: str,
+    fallback: str,
+    project: dict[str, Any] | None,
+) -> None:
+    rec_display = _BACKEND_DISPLAY.get(recommended, recommended)
+    fb_display = _BACKEND_DISPLAY.get(fallback, fallback)
+    context = _poor_fit_context(recommended, project)
+    hint = _INSTALL_HINTS.get(recommended, f"pip install {recommended}")
+    console.print(
+        f"[yellow]Warning:[/yellow] recommended backend {rec_display!r} unavailable; "
+        f"falling back to {fb_display}{context} — "
+        f"install with [bold]`{hint}`[/bold]"
+    )
+
+
 def _make_fallback_segmenter(
     project: dict[str, Any] | None,
     *,
@@ -691,10 +749,19 @@ def _make_fallback_segmenter(
 ) -> Segmenter:
     """Fallback to an installed backend when the recommended optional dep is absent."""
     if attempted_backend != "cellpose" and _HAS_CELLPOSE:
+        _warn_poor_fit_fallback(
+            recommended=attempted_backend, fallback="cellpose", project=project
+        )
         return _make_cellpose(project)
     if attempted_backend != "stardist" and _HAS_STARDIST:
+        _warn_poor_fit_fallback(
+            recommended=attempted_backend, fallback="stardist", project=project
+        )
         return _make_stardist()
     if attempted_backend not in ("micro_sam", "microsam") and _HAS_MICROSAM:
+        _warn_poor_fit_fallback(
+            recommended=attempted_backend, fallback="micro_sam", project=project
+        )
         return _make_microsam()
     raise RuntimeError(
         "No segmentation backend is installed. Install cellpose, stardist, or "

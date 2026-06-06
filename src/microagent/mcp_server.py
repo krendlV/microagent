@@ -45,9 +45,12 @@ def segment(
     output_dir: str = "masks",
     model: str = "auto",
     diameter: int | None = None,
+    project: str | None = None,
+    track: bool = True,
 ) -> dict[str, Any]:
     """Run segmentation on microscopy images. Models: auto, cellpose, stardist, micro_sam.
-    Returns mask paths, cell counts, and model info."""
+    Pass project= to apply project.yaml model selection. Returns mask paths, cell counts,
+    model info, and run_id for reproducibility tracking."""
     try:
         from microagent.core.segment import run_segmentation
 
@@ -55,13 +58,55 @@ def segment(
         if diameter is not None:
             kwargs["diameter"] = diameter
 
-        result = run_segmentation(
-            image_dir=Path(image_dir),
-            output_dir=Path(output_dir),
-            model=model,
-            **kwargs,
-        )
-        return {"status": "success", **result.to_dict()}
+        project_path = Path(project) if project else None
+        run_id: str | None = None
+
+        if track:
+            from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+            params = {
+                "image_dir": image_dir,
+                "output_dir": output_dir,
+                "model": model,
+                "diameter": diameter,
+                "project": project,
+            }
+            with tracked_run(
+                ExperimentTracker(),
+                f"mcp:segment {image_dir}",
+                params,
+                data_path=Path(image_dir),
+                log_on_exception=False,
+            ) as tracked_results:
+                result = run_segmentation(
+                    image_dir=Path(image_dir),
+                    output_dir=Path(output_dir),
+                    model=model,
+                    project_path=project_path,
+                    **kwargs,
+                )
+                tracked_results.update({
+                    "n_masks": len(result.mask_paths),
+                    "n_objects": sum(s.n_labels for s in result.per_image_stats),
+                    "elapsed_seconds": result.elapsed_seconds,
+                    "output_dir": output_dir,
+                    "backend": result.model_info.get("backend"),
+                    "model_name": result.model_info.get("model_name"),
+                })
+            run_id = tracked_results.get("run_id")
+        else:
+            result = run_segmentation(
+                image_dir=Path(image_dir),
+                output_dir=Path(output_dir),
+                model=model,
+                project_path=project_path,
+                **kwargs,
+            )
+
+        response: dict[str, Any] = {"status": "success", **result.to_dict()}
+        if run_id is not None:
+            response["run_id"] = run_id
+        return response
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 
@@ -71,10 +116,11 @@ def evaluate(
     pred_dir: str,
     gt_dir: str,
     thresholds: str = "0.5,0.75,0.9",
+    track: bool = True,
 ) -> dict[str, Any]:
     """Evaluate segmentation quality against ground truth masks.
-    Returns precision, recall, F1, mean F1 across thresholds, and panoptic quality
-    per image and overall.
+    Returns precision, recall, F1, mean F1 across thresholds, panoptic quality
+    per image and overall, and run_id for reproducibility tracking.
     """
     try:
         from dataclasses import asdict
@@ -82,8 +128,44 @@ def evaluate(
         from microagent.core.evaluate import evaluate_masks
 
         thresh_list = [float(t.strip()) for t in thresholds.split(",")]
-        result = evaluate_masks(Path(pred_dir), Path(gt_dir), thresholds=thresh_list)
-        return {"status": "success", **asdict(result)}
+        run_id: str | None = None
+
+        if track:
+            from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+            params = {"pred_dir": pred_dir, "gt_dir": gt_dir, "thresholds": thresholds}
+            with tracked_run(
+                ExperimentTracker(),
+                f"mcp:evaluate {pred_dir}",
+                params,
+                data_path=Path(pred_dir),
+                log_on_exception=False,
+            ) as tracked_results:
+                result = evaluate_masks(Path(pred_dir), Path(gt_dir), thresholds=thresh_list)
+                f1_at_05 = next(
+                    (
+                        tm.f1
+                        for tm in result.summary.per_threshold
+                        if abs(tm.threshold - 0.5) < 1e-9
+                    ),
+                    result.summary.per_threshold[0].f1 if result.summary.per_threshold else 0.0,
+                )
+                tracked_results.update({
+                    "f1": f1_at_05,
+                    "mean_f1": result.summary.mean_f1,
+                    "panoptic_quality": result.summary.panoptic_quality,
+                    "n_images": result.summary.n_images,
+                    "mean_gt_count": result.summary.mean_gt_count,
+                    "mean_pred_count": result.summary.mean_pred_count,
+                })
+            run_id = tracked_results.get("run_id")
+        else:
+            result = evaluate_masks(Path(pred_dir), Path(gt_dir), thresholds=thresh_list)
+
+        response: dict[str, Any] = {"status": "success", **asdict(result)}
+        if run_id is not None:
+            response["run_id"] = run_id
+        return response
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 
@@ -94,8 +176,10 @@ def train(
     gt_dir: str,
     epochs: int = 100,
     output_dir: str = "models",
+    track: bool = True,
 ) -> dict[str, Any]:
-    """Fine-tune a CellPose model on your data. Returns model path and metrics."""
+    """Fine-tune a CellPose model on your data. Returns model path, metrics,
+    and run_id for reproducibility tracking."""
     try:
         from dataclasses import asdict
 
@@ -111,7 +195,36 @@ def train(
             n_epochs=epochs,
             save_dir=Path(output_dir),
         )
-        result = train_cellpose(config)
+        run_id: str | None = None
+
+        if track:
+            from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+            params = {
+                "image_dir": image_dir,
+                "gt_dir": gt_dir,
+                "epochs": epochs,
+                "output_dir": output_dir,
+            }
+            with tracked_run(
+                ExperimentTracker(),
+                f"mcp:train {image_dir}",
+                params,
+                data_path=Path(image_dir),
+                log_on_exception=False,
+            ) as tracked_results:
+                result = train_cellpose(config)
+                losses = result.test_losses or result.train_losses
+                tracked_results.update({
+                    "model_path": str(result.model_path),
+                    "best_epoch": result.best_epoch + 1,
+                    "best_loss": min(losses) if losses else None,
+                    "elapsed_seconds": result.elapsed_seconds,
+                })
+            run_id = tracked_results.get("run_id")
+        else:
+            result = train_cellpose(config)
+
         d = asdict(result)
         # Path objects are not JSON-serializable; convert them
         d["model_path"] = str(result.model_path)
@@ -120,7 +233,10 @@ def train(
             str(result.config_used.test_dir) if result.config_used.test_dir else None
         )
         d["config_used"]["save_dir"] = str(result.config_used.save_dir)
-        return {"status": "success", **d}
+        response: dict[str, Any] = {"status": "success", **d}
+        if run_id is not None:
+            response["run_id"] = run_id
+        return response
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 
@@ -131,9 +247,10 @@ def optimize(
     gt_dir: str,
     n_trials: int = 20,
     metric: str = "f1",
+    track: bool = True,
 ) -> dict[str, Any]:
-    """Run hyperparameter optimization with Optuna. Returns best parameters
-    and improvement over baseline."""
+    """Run hyperparameter optimization with Optuna. Returns best parameters,
+    improvement over baseline, and run_id for reproducibility tracking."""
     try:
         from microagent.core.optimize import OptimizeConfig, run_optimization
 
@@ -143,8 +260,38 @@ def optimize(
             n_trials=n_trials,
             metric=metric,
         )
-        result = run_optimization(config)
-        return {
+        run_id: str | None = None
+
+        if track:
+            from microagent.fair.tracking import ExperimentTracker, tracked_run
+
+            params = {
+                "image_dir": image_dir,
+                "gt_dir": gt_dir,
+                "n_trials": n_trials,
+                "metric": metric,
+            }
+            with tracked_run(
+                ExperimentTracker(),
+                f"mcp:optimize {image_dir}",
+                params,
+                data_path=Path(image_dir),
+                log_on_exception=False,
+            ) as tracked_results:
+                result = run_optimization(config)
+                tracked_results.update({
+                    "best_params": result.best_params,
+                    "best_value": result.best_value,
+                    "baseline_value": result.baseline_value,
+                    "improvement": result.improvement,
+                    "n_trials": len(result.trials),
+                    "study_path": str(result.study_path) if result.study_path else None,
+                })
+            run_id = tracked_results.get("run_id")
+        else:
+            result = run_optimization(config)
+
+        response: dict[str, Any] = {
             "status": "success",
             "best_params": result.best_params,
             "best_value": result.best_value,
@@ -153,6 +300,9 @@ def optimize(
             "n_trials": len(result.trials),
             "study_path": str(result.study_path) if result.study_path else None,
         }
+        if run_id is not None:
+            response["run_id"] = run_id
+        return response
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 

@@ -8,6 +8,62 @@ mcp = pytest.importorskip("mcp", reason="mcp package not installed")
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_seg_result(output_dir=None):
+    from microagent.core.segment import PerImageStats, SegmentationResult
+
+    mask_path = str(output_dir / "image_000_mask.tif") if output_dir else "/tmp/image_000_mask.tif"
+    return SegmentationResult(
+        mask_paths=[mask_path],
+        model_info={"backend": "cellpose", "model_name": "cpsam", "parameters": {}},
+        parameters={},
+        elapsed_seconds=0.1,
+        per_image_stats=[PerImageStats(filename="image_000.tif", n_labels=3, elapsed_seconds=0.1)],
+    )
+
+
+def _make_fake_eval_result():
+    from microagent.core.evaluate import (
+        DatasetMetrics,
+        EvaluationResult,
+        ImageMetrics,
+        ThresholdMetrics,
+    )
+
+    tm = ThresholdMetrics(
+        threshold=0.5, precision=0.8, recall=0.8, f1=0.8, tp=4, fp=1, fn=1, mean_true_score=0.7
+    )
+    im = ImageMetrics(
+        filename="image_000_mask.tif",
+        gt_count=5,
+        pred_count=5,
+        per_threshold=[tm],
+        mean_f1=0.8,
+        panoptic_quality=0.7,
+        iou_distribution=[0.7, 0.8],
+    )
+    summary = DatasetMetrics(
+        n_images=1,
+        per_threshold=[tm],
+        mean_f1=0.8,
+        panoptic_quality=0.7,
+        mean_gt_count=5.0,
+        mean_pred_count=5.0,
+    )
+    return EvaluationResult(
+        per_image=[im],
+        summary=summary,
+        best_images=["image_000_mask.tif"],
+        worst_images=[],
+        unmatched_preds=[],
+        unmatched_gts=[],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Import server once
 # ---------------------------------------------------------------------------
 
@@ -188,3 +244,133 @@ def test_mcp_create_and_read_project(monkeypatch, tmp_path):
     assert info["status"] == "success"
     assert info["organism"] == "mouse"
     assert info["modality"] == "confocal"
+
+
+# ---------------------------------------------------------------------------
+# test_mcp_segment_uses_project
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_segment_uses_project(monkeypatch, tmp_path):
+    """segment tool passes project_path to run_segmentation."""
+    yaml = pytest.importorskip("yaml", reason="PyYAML not installed")
+
+    project_yaml = tmp_path / "project.yaml"
+    project_yaml.write_text(
+        yaml.dump({"recommended_model": "stardist", "recommended_params": {}})
+    )
+
+    captured: dict = {}
+
+    def _mock_run_segmentation(image_dir, output_dir, model, project_path=None, **kwargs):
+        captured["project_path"] = project_path
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return _make_fake_seg_result(output_dir)
+
+    monkeypatch.setattr("microagent.core.segment.run_segmentation", _mock_run_segmentation)
+
+    from microagent.mcp_server import segment
+
+    result = segment(
+        image_dir=str(tmp_path / "images"),
+        output_dir=str(tmp_path / "masks"),
+        project=str(project_yaml),
+        track=False,
+    )
+
+    assert result["status"] == "success"
+    assert captured.get("project_path") == project_yaml
+
+
+# ---------------------------------------------------------------------------
+# test_mcp_segment_logs_to_experiments
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_segment_logs_to_experiments(monkeypatch, tmp_path):
+    """segment with track=True writes to experiments.jsonl and returns run_id."""
+    from microagent.fair.tracking import ExperimentTracker
+
+    monkeypatch.chdir(tmp_path)
+
+    def _mock_run_segmentation(image_dir, output_dir, model, project_path=None, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return _make_fake_seg_result(output_dir)
+
+    monkeypatch.setattr("microagent.core.segment.run_segmentation", _mock_run_segmentation)
+
+    from microagent.mcp_server import segment
+
+    result = segment(
+        image_dir=str(tmp_path / "images"),
+        output_dir=str(tmp_path / "masks"),
+    )
+
+    assert result["status"] == "success"
+    assert "run_id" in result
+    run_id = result["run_id"]
+    assert isinstance(run_id, str) and len(run_id) == 8
+
+    jsonl = tmp_path / "experiments.jsonl"
+    assert jsonl.exists()
+    record = ExperimentTracker(jsonl).get_run(run_id)
+    assert record["run_id"] == run_id
+    assert record["results"]["backend"] == "cellpose"
+
+
+# ---------------------------------------------------------------------------
+# test_mcp_evaluate_logs_to_experiments
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_evaluate_logs_to_experiments(monkeypatch, tmp_path):
+    """evaluate with track=True writes to experiments.jsonl and returns run_id."""
+    from microagent.fair.tracking import ExperimentTracker
+
+    monkeypatch.chdir(tmp_path)
+
+    fake = _make_fake_eval_result()
+    monkeypatch.setattr("microagent.core.evaluate.evaluate_masks", lambda *a, **kw: fake)
+
+    from microagent.mcp_server import evaluate
+
+    result = evaluate(pred_dir=str(tmp_path / "preds"), gt_dir=str(tmp_path / "gt"))
+
+    assert result["status"] == "success"
+    assert "run_id" in result
+    run_id = result["run_id"]
+    assert isinstance(run_id, str) and len(run_id) == 8
+
+    jsonl = tmp_path / "experiments.jsonl"
+    assert jsonl.exists()
+    record = ExperimentTracker(jsonl).get_run(run_id)
+    assert record["run_id"] == run_id
+    assert record["results"]["mean_f1"] == pytest.approx(0.8)
+
+
+# ---------------------------------------------------------------------------
+# test_mcp_segment_track_false_no_experiments
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_segment_track_false_no_experiments(monkeypatch, tmp_path):
+    """segment with track=False does not write experiments.jsonl."""
+    monkeypatch.chdir(tmp_path)
+
+    def _mock_run_segmentation(image_dir, output_dir, model, project_path=None, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return _make_fake_seg_result(output_dir)
+
+    monkeypatch.setattr("microagent.core.segment.run_segmentation", _mock_run_segmentation)
+
+    from microagent.mcp_server import segment
+
+    result = segment(
+        image_dir=str(tmp_path / "images"),
+        output_dir=str(tmp_path / "masks"),
+        track=False,
+    )
+
+    assert result["status"] == "success"
+    assert "run_id" not in result
+    assert not (tmp_path / "experiments.jsonl").exists()

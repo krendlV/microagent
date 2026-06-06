@@ -830,7 +830,7 @@ def run_segmentation(
         _save_mask(mask, mask_path)
         mask_paths.append(str(mask_path))
 
-        n_labels = int(mask.max())
+        n_labels = int(np.count_nonzero(np.unique(mask)))
         per_image_stats.append(
             PerImageStats(filename=img_path.name, n_labels=n_labels, elapsed_seconds=elapsed)
         )

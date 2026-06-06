@@ -672,6 +672,64 @@ class TestRunSegmentation:
         assert "model_info" in data
         assert "per_image_stats" in data
 
+    def test_n_labels_counts_objects_not_max_value(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """n_labels counts distinct non-background labels, not the max label value."""
+        from unittest.mock import MagicMock
+
+        import microagent.core.segment as seg_mod
+
+        # Labels {0, 5, 9}: 2 objects. mask.max() would wrongly return 9.
+        sparse_mask = np.zeros((256, 256), dtype=np.int32)
+        sparse_mask[10:50, 10:50] = 5
+        sparse_mask[100:150, 100:150] = 9
+
+        cellpose_model = MagicMock()
+        cellpose_model.eval.return_value = (sparse_mask, None, None)
+        cellpose_mod = MagicMock()
+        cellpose_mod.CellposeModel.return_value = cellpose_model
+
+        monkeypatch.setattr(seg_mod, "_HAS_CELLPOSE", True)
+        monkeypatch.setattr(seg_mod, "_cp_models", cellpose_mod)
+
+        result = seg_mod.run_segmentation(
+            single_image_dir, tmp_path / "masks", model="cellpose"
+        )
+
+        assert len(result.per_image_stats) == 1
+        assert result.per_image_stats[0].n_labels == 2
+
+    def test_n_labels_zero_for_empty_mask(
+        self,
+        single_image_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An all-zero mask yields n_labels == 0, not -1."""
+        from unittest.mock import MagicMock
+
+        import microagent.core.segment as seg_mod
+
+        zero_mask = np.zeros((256, 256), dtype=np.int32)
+
+        cellpose_model = MagicMock()
+        cellpose_model.eval.return_value = (zero_mask, None, None)
+        cellpose_mod = MagicMock()
+        cellpose_mod.CellposeModel.return_value = cellpose_model
+
+        monkeypatch.setattr(seg_mod, "_HAS_CELLPOSE", True)
+        monkeypatch.setattr(seg_mod, "_cp_models", cellpose_mod)
+
+        result = seg_mod.run_segmentation(
+            single_image_dir, tmp_path / "masks", model="cellpose"
+        )
+
+        assert result.per_image_stats[0].n_labels == 0
+
     def test_missing_image_dir_raises(self, tmp_path: Path) -> None:
         """run_segmentation raises FileNotFoundError for non-existent directory."""
         from microagent.core.segment import run_segmentation

@@ -91,7 +91,11 @@ src/microagent/
 
 ## MCP Integration
 
-Connect MicroAgent to Claude Code (or any MCP client). After cloning and installing from source, add this to `~/.claude/settings.json`:
+MicroAgent exposes its full pipeline as an MCP server. The server is **provider-agnostic** — it makes no LLM calls itself. Use it with Claude, Mistral, a local Ollama model, or any MCP-compatible client.
+
+### Claude Code (quickstart)
+
+After cloning and installing from source, add this to `~/.claude/settings.json`:
 
 ```json
 {
@@ -104,7 +108,17 @@ Connect MicroAgent to Claude Code (or any MCP client). After cloning and install
 }
 ```
 
-Then ask Claude to segment your images. Once MicroAgent is published to PyPI, you can use `uvx` instead. See [docs/mcp-integration.md](docs/mcp-integration.md) for the full setup guide and tool reference.
+Then ask Claude to segment your images. Once MicroAgent is published to PyPI, you can use `uvx` instead.
+
+### Any MCP client or local model
+
+The server config is the same regardless of which LLM you use:
+
+```bash
+microagent mcp-server   # stdio transport, compatible with any MCP client
+```
+
+See [docs/mcp-integration.md](docs/mcp-integration.md) for setup guides for LibreChat + Ollama (local/air-gapped), Continue.dev, and Mistral (EU-hosted). See [docs/llm-providers.md](docs/llm-providers.md) for configuring the optional in-process LLM call via `MICROAGENT_LLM_PROVIDER`.
 
 ---
 
@@ -144,7 +158,8 @@ pip install "microagent[stardist,tracking,mcp]"        # recommended full instal
 - [Getting Started](docs/getting-started.md) — installation, first run, understanding output
 - [User Guide](docs/user-guide.md) — project.yaml, model selection, fine-tuning, batch processing
 - [API Reference](docs/api-reference.md) — every CLI command and option
-- [MCP Integration](docs/mcp-integration.md) — Claude Code, Cursor, tool reference
+- [MCP Integration](docs/mcp-integration.md) — Claude Code, Cursor, LibreChat, Ollama, Mistral, tool reference
+- [LLM Providers](docs/llm-providers.md) — configure Anthropic, OpenAI, Mistral, Ollama, or disable LLM extraction
 - [project.yaml Reference](docs/project-yaml-reference.md) — full schema documentation
 - [Architecture](docs/architecture.md) — module design, data flow, extension points
 - [FAQ](docs/faq.md) — common issues, GPU troubleshooting, positioning

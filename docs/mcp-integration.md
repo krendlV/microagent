@@ -111,6 +111,75 @@ microagent mcp-server --transport streamable-http --port 8080
 
 ---
 
+## Using MicroAgent with Any MCP Client or Local Model
+
+MicroAgent is the MCP *server* — the LLM client is entirely your choice. The server makes no LLM calls of its own; all AI reasoning happens in the client. Any MCP-compatible client works, including fully open-source and locally-run stacks.
+
+### Local stack: LibreChat + Ollama (fully air-gapped)
+
+Run a privacy-preserving setup with no data leaving your machine:
+
+1. Install [Ollama](https://ollama.ai/) and pull a model:
+   ```bash
+   ollama pull llama3
+   ```
+
+2. Install [LibreChat](https://www.librechat.ai/) and configure it to use the Ollama endpoint.
+
+3. Add MicroAgent as an MCP server in `librechat.yaml`:
+   ```yaml
+   mcp:
+     servers:
+       microagent:
+         command: microagent
+         args: [mcp-server]
+   ```
+
+4. Start a conversation in LibreChat backed by your local Ollama model — it can call all MicroAgent tools exactly like Claude does.
+
+### Local stack: Continue.dev + Ollama
+
+[Continue](https://continue.dev/) is a VS Code/JetBrains extension with MCP support:
+
+1. In `.continue/config.json` add:
+   ```json
+   {
+     "mcpServers": [
+       {
+         "name": "microagent",
+         "command": "microagent",
+         "args": ["mcp-server"]
+       }
+     ]
+   }
+   ```
+
+2. Point Continue to your Ollama model — no API keys required.
+
+### EU/GDPR stack: Mistral via MCP-capable client
+
+Mistral AI's API is hosted in Europe. Use it with any MCP-compatible client that supports Mistral models (LibreChat, Zed, OpenWebUI, etc.):
+
+1. Get a [Mistral API key](https://console.mistral.ai/).
+
+2. Configure your client to use `https://api.mistral.ai/v1` with your Mistral key.
+
+3. Add MicroAgent as an MCP server — the server config is identical regardless of which LLM you use on the client side:
+   ```json
+   {
+     "mcpServers": {
+       "microagent": {
+         "command": "microagent",
+         "args": ["mcp-server"]
+       }
+     }
+   }
+   ```
+
+> **Key point:** The MCP server config is the same for every LLM provider. Swap models freely without touching MicroAgent's configuration.
+
+---
+
 ## Available Tools
 
 ### `inspect_data`

@@ -268,23 +268,31 @@ def test_load_document_markdown(tmp_path: Path) -> None:
 # ── test_extract_from_text ────────────────────────────────────────────────────
 
 
+def _disable_llm(monkeypatch) -> None:
+    """Force keyword-only extraction by clearing all provider env vars."""
+    monkeypatch.setenv("MICROAGENT_LLM_PROVIDER", "none")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+
+
 def test_keyword_extract_organism(monkeypatch) -> None:
     """Keyword fallback detects organism from plain text."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _disable_llm(monkeypatch)
     result = extract_from_text("We imaged zebrafish embryos with confocal microscopy.")
     assert result.get("organism") == "zebrafish"
 
 
 def test_keyword_extract_modality(monkeypatch) -> None:
     """Keyword fallback detects modality from plain text."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _disable_llm(monkeypatch)
     result = extract_from_text("Brightfield imaging of HeLa cells.")
     assert result.get("modality") == "brightfield"
 
 
 def test_keyword_extract_structures(monkeypatch) -> None:
     """Keyword fallback detects structures."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _disable_llm(monkeypatch)
     result = extract_from_text("We segment nuclei and whole cells from the images.")
     assert "nuclei" in result.get("structures", [])
     assert "whole_cells" in result.get("structures", [])
@@ -292,14 +300,14 @@ def test_keyword_extract_structures(monkeypatch) -> None:
 
 def test_keyword_extract_goal(monkeypatch) -> None:
     """Keyword fallback detects analysis goal."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _disable_llm(monkeypatch)
     result = extract_from_text("The goal is to count cells in each frame.")
     assert result.get("analysis_goal") == "count"
 
 
 def test_keyword_extract_ground_truth(monkeypatch) -> None:
     """Keyword fallback sets has_ground_truth when annotations are mentioned."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _disable_llm(monkeypatch)
     result = extract_from_text("We have ground truth masks for each image.")
     assert result.get("has_ground_truth") is True
     assert result.get("ground_truth_format") == "masks"
@@ -307,14 +315,14 @@ def test_keyword_extract_ground_truth(monkeypatch) -> None:
 
 def test_keyword_extract_bit_depth(monkeypatch) -> None:
     """Keyword fallback detects bit depth."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _disable_llm(monkeypatch)
     result = extract_from_text("Images are 16-bit TIFF files.")
     assert result.get("bit_depth") == 16
 
 
 def test_keyword_extract_vram(monkeypatch) -> None:
     """Keyword fallback extracts VRAM from text."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _disable_llm(monkeypatch)
     result = extract_from_text("The server has 24GB VRAM and 128GB RAM.")
     assert result.get("compute", {}).get("vram_gb") == 24.0
 
@@ -343,6 +351,9 @@ def test_llm_extract_uses_api_key(monkeypatch, tmp_path) -> None:
 def test_llm_extract_falls_back_on_error(monkeypatch) -> None:
     """extract_from_text falls back to keywords when API raises."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    monkeypatch.delenv("MICROAGENT_LLM_PROVIDER", raising=False)
 
     fake_anthropic = MagicMock()
     fake_anthropic.Anthropic.side_effect = Exception("network error")
@@ -352,3 +363,43 @@ def test_llm_extract_falls_back_on_error(monkeypatch) -> None:
 
     # Fallback keyword extraction should still work
     assert result.get("organism") == "mouse"
+
+
+def test_openai_compat_path_for_mistral(monkeypatch) -> None:
+    """extract_from_text uses OpenAI-compatible client when provider=mistral."""
+    monkeypatch.setenv("MICROAGENT_LLM_PROVIDER", "mistral")
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    fake_choice = MagicMock()
+    fake_choice.message.content = '{"organism": "mouse"}'
+    fake_resp = MagicMock()
+    fake_resp.choices = [fake_choice]
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = fake_resp
+
+    fake_openai = MagicMock()
+    fake_openai.OpenAI.return_value = fake_client
+
+    with patch.dict("sys.modules", {"openai": fake_openai}):
+        result = extract_from_text("Mouse nuclei confocal project.")
+
+    assert result.get("organism") == "mouse"
+    fake_openai.OpenAI.assert_called_once()
+    call_kwargs = fake_openai.OpenAI.call_args[1]
+    assert call_kwargs.get("base_url") == "https://api.mistral.ai/v1"
+    fake_client.chat.completions.create.assert_called_once()
+
+
+def test_no_key_uses_keyword_fallback(monkeypatch) -> None:
+    """With provider=none, extract_from_text uses keyword fallback silently."""
+    monkeypatch.setenv("MICROAGENT_LLM_PROVIDER", "none")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+
+    result = extract_from_text("We imaged mouse nuclei with confocal microscopy.")
+    assert result.get("organism") == "mouse"
+    assert result.get("modality") == "confocal"

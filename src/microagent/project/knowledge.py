@@ -16,6 +16,92 @@ from microagent.project.schema import ChannelConfig, ComputeConfig, ProjectConfi
 
 console = Console()
 
+# ── LLM provider shim ─────────────────────────────────────────────────────────
+
+_OPENAI_BASE_URLS: dict[str, str] = {
+    "mistral": "https://api.mistral.ai/v1",
+    "ollama": "http://localhost:11434/v1",
+}
+
+_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-4o-mini",
+    "mistral": "mistral-small-latest",
+    "ollama": "llama3",
+}
+
+_API_KEY_ENVVARS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+}
+
+
+def _resolve_provider() -> str:
+    """Determine LLM provider from MICROAGENT_LLM_PROVIDER or API key auto-detection."""
+    import os
+
+    explicit = os.environ.get("MICROAGENT_LLM_PROVIDER", "").lower()
+    if explicit:
+        return explicit
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    if os.environ.get("MISTRAL_API_KEY"):
+        return "mistral"
+    return "none"
+
+
+def _llm_complete(prompt: str) -> str | None:
+    """Call an LLM with *prompt* and return the response text, or None if no provider.
+
+    Provider is resolved from MICROAGENT_LLM_PROVIDER (or auto-detected from API keys).
+    Returns None silently if no provider or SDK is missing; raises on API/network errors.
+    """
+    import os
+
+    provider = _resolve_provider()
+    if provider == "none":
+        return None
+
+    model = os.environ.get("MICROAGENT_LLM_MODEL", "") or _DEFAULT_MODELS.get(provider, "")
+    base_url = os.environ.get("MICROAGENT_LLM_BASE_URL", "")
+
+    if provider == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        try:
+            import anthropic  # type: ignore[import]
+        except ImportError:
+            return None
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
+
+    # OpenAI-compatible path: covers openai, mistral, ollama, vLLM, LM Studio, OpenRouter
+    resolved_base_url = base_url or _OPENAI_BASE_URLS.get(provider)
+    key_var = _API_KEY_ENVVARS.get(provider, "OPENAI_API_KEY")
+    api_key = os.environ.get(key_var, "no-key")
+
+    try:
+        import openai  # type: ignore[import]
+    except ImportError:
+        return None
+
+    client_kwargs: dict[str, Any] = {"api_key": api_key}
+    if resolved_base_url:
+        client_kwargs["base_url"] = resolved_base_url
+    oa_client = openai.OpenAI(**client_kwargs)
+    resp = oa_client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1024,
+    )
+    return resp.choices[0].message.content.strip()
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 MODALITIES = ["fluorescence", "brightfield", "phase_contrast", "EM", "H&E", "confocal"]
@@ -161,8 +247,8 @@ def _keyword_extract(text: str) -> dict[str, Any]:
 def extract_from_text(text: str) -> dict[str, Any]:
     """Extract ProjectConfig fields from free-form document text.
 
-    Tries the Anthropic Claude API first (if ``anthropic`` is installed and
-    ``ANTHROPIC_API_KEY`` is set). Falls back to keyword heuristics otherwise.
+    Tries an LLM first (provider resolved from MICROAGENT_LLM_PROVIDER or API keys).
+    Falls back to keyword heuristics when no provider is configured or on error.
 
     Parameters
     ----------
@@ -173,40 +259,22 @@ def extract_from_text(text: str) -> dict[str, Any]:
     -------
     Partial dict of project fields; keys present only when a value was found.
     """
-    import os
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-
-    if api_key:
-        try:
-            import anthropic  # type: ignore[import]
-
-            client = anthropic.Anthropic(api_key=api_key)
-            message = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            "Extract microscopy project information from the document below.\n\n"
-                            f"{_EXTRACTION_SCHEMA}\n\n"
-                            f"DOCUMENT:\n{text[:8000]}"
-                        ),
-                    }
-                ],
-            )
-            raw_json = message.content[0].text.strip()
-            # Strip optional markdown fences
-            raw_json = re.sub(r"^```(?:json)?\s*", "", raw_json)
-            raw_json = re.sub(r"\s*```$", "", raw_json)
-            extracted = json.loads(raw_json)
-            return extracted
-        except Exception as exc:
-            console.print(
-                f"[dim yellow]LLM extraction failed ({exc}); "
-                "falling back to keyword search.[/dim yellow]"
-            )
+    prompt = (
+        "Extract microscopy project information from the document below.\n\n"
+        f"{_EXTRACTION_SCHEMA}\n\n"
+        f"DOCUMENT:\n{text[:8000]}"
+    )
+    try:
+        raw = _llm_complete(prompt)
+        if raw is not None:
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+            return json.loads(raw)
+    except Exception as exc:
+        console.print(
+            f"[dim yellow]LLM extraction failed ({exc}); "
+            "falling back to keyword search.[/dim yellow]"
+        )
 
     return _keyword_extract(text)
 

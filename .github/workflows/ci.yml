@@ -36,3 +36,26 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  test-full:
+    name: Full suite (Python 3.11, all extras)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      # stardist pulls in tensorflow which is large; skip it to keep CI fast.
+      # Everything else in [all] is installed: optuna, mlflow, mcp, dev tools.
+      - name: Install dependencies (all extras minus stardist)
+        run: uv sync --extra tracking --extra mcp --extra dev
+
+      - name: Run tests including optional-dep paths
+        run: uv run pytest tests/ tests/integration/ -m "not slow" -v

@@ -330,9 +330,13 @@
   <div class="gallery">
     {% for img in overlay_uris %}
     <div class="gallery-item">
-      <a href="{{ img.uri }}" target="_blank" title="Click for full size: {{ img.name }}">
+      {% if img.link %}
+      <a href="{{ img.link }}" target="_blank" title="Click for full size: {{ img.name }}">
         <img src="{{ img.uri }}" alt="{{ img.name }}" loading="lazy">
       </a>
+      {% else %}
+      <img src="{{ img.uri }}" alt="{{ img.name }}" loading="lazy">
+      {% endif %}
       <div class="caption">{{ img.name }}</div>
     </div>
     {% endfor %}

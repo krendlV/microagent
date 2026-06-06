@@ -180,17 +180,27 @@ Open an issue before starting significant work. PRs welcome.
 
 ---
 
-## Citation
+## How to Cite
+
+> The authoritative citation metadata is in [`CITATION.cff`](CITATION.cff). GitHub renders
+> a **"Cite this repository"** button at the top of the repo page. A Zenodo DOI will be
+> minted on the first tagged release (`v0.1.0`) — enable the GitHub–Zenodo integration
+> before tagging. Once live, the DOI badge will replace the placeholder below.
+>
+> [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
 ```bibtex
 @software{microagent2026,
   author  = {Krendl, Valentin},
-  title   = {MicroAgent: Agentic Microscopy Image Analysis},
+  title   = {{MicroAgent}: Agentic Microscopy Image Analysis},
   year    = {2026},
   url     = {https://github.com/krendlV/microagent},
   license = {BSD-3-Clause}
 }
 ```
+
+A journal article is in preparation. Once published, the `preferred-citation` block in
+`CITATION.cff` will be updated with the final reference.
 
 ---
 

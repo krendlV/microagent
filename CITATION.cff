@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use MicroAgent in your research, please cite it using the metadata from this file."
+title: "MicroAgent: Agentic Microscopy Image Analysis"
+version: 0.1.0
+date-released: 2026-06-06
+license: BSD-3-Clause
+repository-code: "https://github.com/krendlV/microagent"
+authors:
+  - family-names: Krendl
+    given-names: Valentin
+    orcid: "https://orcid.org/0000-0000-0000-0000"  # TODO: replace with real ORCID
+
+preferred-citation:
+  type: article
+  title: "MicroAgent: Agentic Microscopy Image Analysis"  # TODO: update with final paper title
+  authors:
+    - family-names: Krendl
+      given-names: Valentin
+      orcid: "https://orcid.org/0000-0000-0000-0000"  # TODO: replace with real ORCID
+  year: 2026
+  # TODO: fill in journal, volume, issue, pages, and doi once the paper is published

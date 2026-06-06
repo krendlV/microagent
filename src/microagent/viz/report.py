@@ -3,10 +3,28 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
+import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+
+# Long edge (px) embedded overlays/plots are downscaled to. Screen-resolution
+# galleries never need full 2048 px assets, and this keeps self-contained
+# reports small enough to email.
+_MAX_EMBED_EDGE = 1600
+
+# JPEG quality for re-encoded photographic images (overlays/composites).
+_JPEG_QUALITY = 85
+
+_MIME_BY_SUFFIX = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
 
 
 @dataclass
@@ -60,16 +78,77 @@ def _to_dict(obj: Any) -> Any:
         return obj
 
 
-def _embed_image(path: Path) -> str:
-    """Read an image file and return a base64 data URI string."""
-    mime = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-    }.get(path.suffix.lower(), "image/png")
-    data = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{mime};base64,{data}"
+def _encode_image(path: Path, *, is_plot: bool = False) -> tuple[str, bytes]:
+    """Load, downscale, and re-encode an image for compact embedding.
+
+    Photographic images (overlays, composites) are re-encoded as JPEG to
+    collapse their size dramatically; charts and plots stay PNG so text and
+    thin lines remain crisp. Either way the long edge is capped at
+    ``_MAX_EMBED_EDGE`` px. Falls back to the raw file bytes (with the
+    suffix-derived MIME type) if Pillow is unavailable or cannot read it.
+
+    Parameters
+    ----------
+    path:
+        Source image on disk.
+    is_plot:
+        When True, keep the image lossless (PNG); otherwise emit JPEG.
+
+    Returns
+    -------
+    tuple[str, bytes]
+        The MIME type and the encoded image bytes.
+    """
+    fallback_mime = _MIME_BY_SUFFIX.get(path.suffix.lower(), "image/png")
+    try:
+        from PIL import Image
+    except ImportError:
+        return fallback_mime, path.read_bytes()
+
+    try:
+        with Image.open(path) as im:
+            im.load()
+            long_edge = max(im.size)
+            if long_edge > _MAX_EMBED_EDGE:
+                scale = _MAX_EMBED_EDGE / long_edge
+                new_size = (
+                    max(1, round(im.width * scale)),
+                    max(1, round(im.height * scale)),
+                )
+                im = im.resize(new_size, Image.LANCZOS)
+
+            buf = io.BytesIO()
+            if is_plot:
+                im.save(buf, format="PNG", optimize=True)
+                mime = "image/png"
+            else:
+                if im.mode not in ("RGB", "L"):
+                    im = im.convert("RGB")
+                im.save(buf, format="JPEG", quality=_JPEG_QUALITY)
+                mime = "image/jpeg"
+            return mime, buf.getvalue()
+    except (OSError, ValueError):
+        # Unreadable or unsupported image — embed it verbatim.
+        return fallback_mime, path.read_bytes()
+
+
+def _embed_image(path: Path, *, is_plot: bool = False) -> str:
+    """Return a base64 data URI for *path*, downscaled and re-encoded."""
+    mime, data = _encode_image(path, is_plot=is_plot)
+    b64 = base64.b64encode(data).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def _copy_asset(path: Path, assets_dir: Path) -> str:
+    """Copy *path* (full resolution) into *assets_dir*, return a relative URI.
+
+    Used by the ``--no-embed`` mode so the HTML references sidecar files
+    instead of inlining megabytes of base64.
+    """
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    dest = assets_dir / path.name
+    shutil.copyfile(path, dest)
+    return f"{assets_dir.name}/{dest.name}"
 
 
 # ---------------------------------------------------------------------------
@@ -77,11 +156,14 @@ def _embed_image(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def generate_report(data: ReportData, output_path: Path) -> Path:
-    """Render a self-contained HTML report and write it to *output_path*.
+def generate_report(data: ReportData, output_path: Path, *, embed: bool = True) -> Path:
+    """Render an HTML report and write it to *output_path*.
 
-    All images are embedded as base64 data URIs so the resulting file has
-    no external dependencies and can be shared freely.
+    By default (``embed=True``) every image is downscaled, re-encoded, and
+    inlined as a base64 data URI, so the resulting file is self-contained and
+    can be shared freely while staying small. With ``embed=False`` the
+    full-resolution images are copied into an ``<output_stem>_assets/`` sidecar
+    directory and referenced by relative path instead.
 
     Parameters
     ----------
@@ -89,6 +171,9 @@ def generate_report(data: ReportData, output_path: Path) -> Path:
         Populated ReportData containing pipeline outputs and metadata.
     output_path:
         Destination path for the HTML report file.
+    embed:
+        When True, inline images as compact data URIs; when False, write
+        full-resolution sidecar assets and reference them by relative path.
 
     Returns
     -------
@@ -121,19 +206,39 @@ def generate_report(data: ReportData, output_path: Path) -> Path:
         "plot_uris": [],
     }
 
-    for p in data.overlay_images:
-        if p.exists():
-            ctx["overlay_uris"].append({"name": p.stem, "uri": _embed_image(p)})
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    for p in data.plots:
-        if p.exists():
-            ctx["plot_uris"].append({"name": p.stem, "uri": _embed_image(p)})
+    if embed:
+        # ``link`` is left unset: with an inlined data URI there is nothing
+        # bigger to link to, and duplicating the URI in an <a href> would
+        # double the embedded payload.
+        for p in data.overlay_images:
+            if p.exists():
+                ctx["overlay_uris"].append(
+                    {"name": p.stem, "uri": _embed_image(p, is_plot=False), "link": None}
+                )
+        for p in data.plots:
+            if p.exists():
+                ctx["plot_uris"].append(
+                    {"name": p.stem, "uri": _embed_image(p, is_plot=True), "link": None}
+                )
+    else:
+        # Sidecar assets carry the full resolution, so the gallery thumbnail
+        # links out to the same file it displays.
+        assets_dir = output_path.parent / f"{output_path.stem}_assets"
+        for p in data.overlay_images:
+            if p.exists():
+                rel = _copy_asset(p, assets_dir)
+                ctx["overlay_uris"].append({"name": p.stem, "uri": rel, "link": rel})
+        for p in data.plots:
+            if p.exists():
+                rel = _copy_asset(p, assets_dir)
+                ctx["plot_uris"].append({"name": p.stem, "uri": rel, "link": rel})
 
     template = env.get_template("report.html.j2")
     html = template.render(**ctx)
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
     return output_path
 
@@ -224,9 +329,20 @@ def load_report_data(
 
     overlay_images: list[Path] = []
     if overlay_dir and overlay_dir.is_dir():
-        overlay_images = sorted(
+        # Embed one representation per image: the per-image ``*_overlay`` files.
+        # Redundant side-by-side composites and the combined montage are
+        # skipped to keep the gallery (and report size) lean.
+        def _is_primary_overlay(p: Path) -> bool:
+            stem = p.stem.lower()
+            return "sidebyside" not in stem and not stem.startswith("montage")
+
+        candidates = [
             p for p in overlay_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"}
-        )
+        ]
+        filtered = [p for p in candidates if _is_primary_overlay(p)]
+        # If nothing matches the naming convention, fall back to all images so
+        # arbitrary overlay directories still render something.
+        overlay_images = sorted(filtered or candidates)
 
     plot_paths: list[Path] = []
     if plots_dir and plots_dir.is_dir():

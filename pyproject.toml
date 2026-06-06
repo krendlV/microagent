@@ -30,6 +30,7 @@ microagent-mcp-server = "microagent.mcp_server:main"
 stardist = ["stardist"]
 # micro-sam is not on PyPI; install via conda: conda install -c conda-forge micro_sam
 sam = []
+# TODO: BioImage.IO model zoo integration (discover community models from bioimage.io)
 bioimage = ["bioimageio.core"]
 tracking = ["optuna>=4.8", "mlflow"]
 mcp = ["mcp>=1.18.0"]
@@ -43,7 +44,7 @@ dev = [
 all = [
     "stardist",
     # micro_sam excluded — not on PyPI (conda-forge only)
-    "bioimageio.core",
+    # bioimageio.core excluded — no active integration yet (see bioimage extra)
     "optuna>=4.8",
     "mlflow",
     "mcp>=1.18.0",

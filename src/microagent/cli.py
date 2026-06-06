@@ -1039,6 +1039,15 @@ def report(
         "--plots",
         help="Directory of metric plot PNGs (auto-detected as plots/ if omitted)",
     ),
+    embed: bool = typer.Option(
+        True,
+        "--embed/--no-embed",
+        help=(
+            "Inline downscaled images as data URIs (default), or with "
+            "--no-embed copy full-resolution images into an "
+            "<output>_assets/ folder and reference them by relative path"
+        ),
+    ),
 ) -> None:
     """Generate a self-contained HTML report from pipeline results."""
     from microagent.viz.report import generate_report, load_report_data
@@ -1094,7 +1103,7 @@ def report(
                 plots_dir=resolved_plots if resolved_plots and resolved_plots.is_dir() else None,
                 command="microagent report",
             )
-            generate_report(data, output)
+            generate_report(data, output, embed=embed)
         except ImportError as exc:
             console.print(f"[bold red]Import error:[/bold red] {exc}")
             raise typer.Exit(1) from None

@@ -326,3 +326,87 @@ def test_report_cli_auto_detects_segment_output(
     html = out.read_text(encoding="utf-8")
     assert "Segmentation Results" in html
     assert "Metrics Dashboard" in html
+
+
+# ── Report size / embedding regression tests ──────────────────────────────────
+
+
+def _write_large_overlay(path: Path, size: int = 2048) -> None:
+    """Write a full-resolution, photographic-looking PNG to *path*.
+
+    Upscaled low-frequency noise mimics real microscopy overlays: enough
+    structure that the lossless PNG is multiple megabytes, but compressible
+    by JPEG the way genuine images are (unlike pure white noise, which is an
+    unrealistic worst case for both encoders).
+    """
+    from PIL import Image
+
+    rng = np.random.default_rng(0)
+    seed = rng.integers(0, 256, size=(256, 256, 3), dtype=np.uint8)
+    arr = np.array(Image.fromarray(seed, mode="RGB").resize((size, size), Image.BICUBIC))
+    Image.fromarray(arr, mode="RGB").save(path, format="PNG")
+
+
+def test_report_size_under_5mb(tmp_path: Path) -> None:
+    """Embedding several full-res overlays must yield a report well under 5 MB.
+
+    Guards against regressing to the old behaviour where lossless full-res
+    PNGs were base64-inlined, producing ~120 MB reports.
+    """
+    overlay_dir = tmp_path / "overlays"
+    overlay_dir.mkdir()
+    for i in range(1, 4):
+        _write_large_overlay(overlay_dir / f"{i}_overlay.png")
+
+    # Sanity check: the raw assets alone vastly exceed the 5 MB target.
+    raw_bytes = sum(p.stat().st_size for p in overlay_dir.glob("*.png"))
+    assert raw_bytes > 5 * 1024 * 1024
+
+    output = tmp_path / "report.html"
+    data = ReportData(
+        project={"name": "SizeTest"},
+        inspection=_make_inspection_dict(),
+        segmentation=_make_segmentation_dict(),
+        provenance=_make_provenance(),
+        overlay_images=sorted(overlay_dir.glob("*.png")),
+    )
+    generate_report(data, output)
+
+    size = output.stat().st_size
+    assert size < 5 * 1024 * 1024, f"report is {size / 1024 / 1024:.1f} MB"
+    # Photographic overlays are re-encoded as JPEG data URIs.
+    assert "data:image/jpeg;base64," in output.read_text(encoding="utf-8")
+
+
+def test_overlay_discovery_skips_redundant_variants(tmp_path: Path) -> None:
+    """load_report_data embeds only *_overlay images, not sidebyside/montage."""
+    overlay_dir = tmp_path / "overlays"
+    overlay_dir.mkdir()
+    for name in ("1_overlay.png", "1_sidebyside.png", "montage.png"):
+        _write_large_overlay(overlay_dir / name, size=64)
+
+    data = load_report_data(overlay_dir=overlay_dir, command="pytest")
+    stems = {p.stem for p in data.overlay_images}
+    assert stems == {"1_overlay"}
+
+
+def test_report_no_embed_writes_sidecar_assets(tmp_path: Path) -> None:
+    """--no-embed copies full-res assets and references them by relative path."""
+    overlay_dir = tmp_path / "overlays"
+    overlay_dir.mkdir()
+    _write_large_overlay(overlay_dir / "1_overlay.png", size=128)
+
+    output = tmp_path / "report.html"
+    data = ReportData(
+        project={"name": "NoEmbed"},
+        inspection=_make_inspection_dict(),
+        segmentation=_make_segmentation_dict(),
+        provenance=_make_provenance(),
+        overlay_images=sorted(overlay_dir.glob("*.png")),
+    )
+    generate_report(data, output, embed=False)
+
+    html = output.read_text(encoding="utf-8")
+    assert "data:image" not in html
+    assert "report_assets/1_overlay.png" in html
+    assert (tmp_path / "report_assets" / "1_overlay.png").exists()

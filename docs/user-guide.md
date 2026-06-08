@@ -1,5 +1,66 @@
 # User Guide
 
+## Downloading Annotated Datasets
+
+MicroAgent ships with a built-in registry of small CC0 / permissive annotated datasets
+so you can try training, optimization, and evaluation without sourcing your own data.
+
+### Fetching a dataset
+
+```bash
+microagent fetch-dataset dsb2018
+```
+
+Downloads to `~/.cache/microagent/datasets/dsb2018/` and lays out:
+
+```
+~/.cache/microagent/datasets/dsb2018/
+    images/           ← raw microscopy TIFFs
+    ground_truth/     ← integer-labelled nuclear mask TIFFs
+```
+
+Override the cache location:
+
+```bash
+# via flag
+microagent fetch-dataset dsb2018 --cache-dir /data/cache
+
+# via environment variable (persists across commands)
+export MICROAGENT_CACHE_DIR=/data/cache
+microagent fetch-dataset dsb2018
+```
+
+### Available datasets
+
+```bash
+microagent fetch-dataset --list
+```
+
+| Name | Description | License |
+|------|-------------|---------|
+| `dsb2018` | 2018 Data Science Bowl nuclei (BBBC039 validation, 200 images) | CC0 |
+| `cellpose-sample` | CellPose cytoplasm sample images + masks | BSD-3-Clause |
+| `stardist-demo` | StarDist demo fluorescence nuclei | BSD-3-Clause |
+
+### One-liner train / optimize / demo on a dataset
+
+Pass `--dataset <name>` to `train`, `optimize`, or `demo` — the dataset is fetched
+automatically (or served from cache) and its `images/` + `ground_truth/` directories
+are forwarded to the command:
+
+```bash
+# Hyperparameter optimization — no manual data prep needed
+microagent optimize --dataset dsb2018 --trials 20
+
+# Fine-tuning
+microagent train --dataset dsb2018 --epochs 50
+
+# End-to-end demo on real data
+microagent demo --dataset dsb2018 --no-browser
+```
+
+---
+
 ## Working with project.yaml
 
 `project.yaml` is the central configuration file for a MicroAgent project. It drives automatic model selection, default parameters, and report metadata.

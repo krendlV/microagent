@@ -507,10 +507,85 @@ def segment(
     _print_logged_run(tracked_results)
 
 
+@app.command("fetch-dataset")
+def fetch_dataset_cmd(
+    name: str = typer.Argument(..., help="Dataset name, e.g. dsb2018"),
+    cache_dir: Path | None = typer.Option(
+        None,
+        "--cache-dir",
+        help="Override cache root (default: ~/.cache/microagent/datasets/)",
+    ),
+    list_all: bool = typer.Option(False, "--list", "-l", help="List available datasets and exit"),
+) -> None:
+    """Download a CC0/permissive annotated dataset for training and evaluation.
+
+    Downloads to ~/.cache/microagent/datasets/<name>/ (or --cache-dir),
+    verifies checksums when available, and lays out images/ + ground_truth/
+    subdirectories ready for evaluate/train/optimize commands.
+
+    Examples
+    --------
+    \\b
+        microagent fetch-dataset dsb2018
+        microagent fetch-dataset --list
+        microagent optimize --dataset dsb2018 --trials 5
+    """
+    from microagent.data.datasets import fetch_dataset, list_datasets
+
+    if list_all:
+        names = list_datasets()
+        from microagent.data.datasets import get_spec
+
+        tbl = Table(title="Available Datasets", box=SIMPLE_HEAD, show_lines=False)
+        tbl.add_column("Name", style="cyan")
+        tbl.add_column("License", style="green")
+        tbl.add_column("Description")
+        for n in names:
+            spec = get_spec(n)
+            tbl.add_row(n, spec.license, spec.description)
+        console.print(tbl)
+        return
+
+    try:
+        dataset_dir = fetch_dataset(name, cache_dir=cache_dir)
+    except ValueError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(1) from None
+    except RuntimeError as exc:
+        console.print(f"[bold red]Download failed:[/bold red] {exc}")
+        raise typer.Exit(1) from None
+
+    img_dir = dataset_dir / "images"
+    gt_dir_p = dataset_dir / "ground_truth"
+    images = list(img_dir.glob("*.tif")) if img_dir.exists() else []
+    gt = list(gt_dir_p.glob("*.tif")) if gt_dir_p.exists() else []
+    console.print(
+        Panel(
+            f"[bold]Dataset:[/bold]  {name}\n"
+            f"[bold]Path:[/bold]     {dataset_dir}\n"
+            f"[bold]Images:[/bold]   {len(images)} TIFFs\n"
+            f"[bold]GT masks:[/bold] {len(gt)} TIFFs",
+            title="Dataset Ready",
+            border_style="green",
+        )
+    )
+
+
 @app.command()
 def train(
-    image_dir: Path = typer.Argument(..., help="Directory containing raw training images"),
-    gt_dir: Path = typer.Argument(..., help="Directory containing ground-truth masks"),
+    image_dir: Path | None = typer.Argument(None, help="Directory containing raw training images"),
+    gt_dir: Path | None = typer.Argument(None, help="Directory containing ground-truth masks"),
+    dataset: str | None = typer.Option(
+        None,
+        "--dataset",
+        help="Fetch a registered dataset by name (e.g. dsb2018) and use it for training. "
+        "Overrides image_dir and gt_dir positional arguments.",
+    ),
+    dataset_cache: Path | None = typer.Option(
+        None,
+        "--dataset-cache",
+        help="Cache directory for --dataset (default: ~/.cache/microagent/datasets/)",
+    ),
     epochs: int = typer.Option(100, "--epochs", "-e", help="Number of training epochs"),
     lr: float = typer.Option(1e-5, "--lr", help="Learning rate"),
     weight_decay: float = typer.Option(0.1, "--weight-decay", help="Weight decay"),
@@ -526,6 +601,24 @@ def train(
 ) -> None:
     """Fine-tune a CellPose model on labelled microscopy images."""
     from microagent.core.train import TrainConfig, prepare_data, train_cellpose
+
+    # ── Dataset shortcut ──────────────────────────────────────────────────────
+    if dataset is not None:
+        from microagent.data.datasets import fetch_dataset
+
+        try:
+            ds_root = fetch_dataset(dataset, cache_dir=dataset_cache)
+        except (ValueError, RuntimeError) as exc:
+            console.print(f"[bold red]Dataset error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+        image_dir = ds_root / "images"
+        gt_dir = ds_root / "ground_truth"
+    elif image_dir is None or gt_dir is None:
+        console.print(
+            "[bold red]Error:[/bold red] Provide either --dataset <name> "
+            "or both image_dir and gt_dir positional arguments."
+        )
+        raise typer.Exit(1)
 
     params = _serializable_params(
         image_dir=image_dir,
@@ -639,8 +732,19 @@ def train(
 
 @app.command()
 def optimize(
-    image_dir: Path = typer.Argument(..., help="Directory containing images"),
-    gt_dir: Path = typer.Argument(..., help="Directory containing ground-truth masks"),
+    image_dir: Path | None = typer.Argument(None, help="Directory containing images"),
+    gt_dir: Path | None = typer.Argument(None, help="Directory containing ground-truth masks"),
+    dataset: str | None = typer.Option(
+        None,
+        "--dataset",
+        help="Fetch a registered dataset by name (e.g. dsb2018) and use it. "
+        "Overrides image_dir and gt_dir positional arguments.",
+    ),
+    dataset_cache: Path | None = typer.Option(
+        None,
+        "--dataset-cache",
+        help="Cache directory for --dataset (default: ~/.cache/microagent/datasets/)",
+    ),
     trials: int = typer.Option(20, "--trials", "-n", help="Number of Optuna trials"),
     metric: str = typer.Option(
         "f1",
@@ -664,6 +768,24 @@ def optimize(
 ) -> None:
     """Optimise segmentation hyperparameters with Optuna TPE search."""
     from microagent.core.optimize import OptimizeConfig, run_optimization
+
+    # ── Dataset shortcut ──────────────────────────────────────────────────────
+    if dataset is not None:
+        from microagent.data.datasets import fetch_dataset
+
+        try:
+            ds_root = fetch_dataset(dataset, cache_dir=dataset_cache)
+        except (ValueError, RuntimeError) as exc:
+            console.print(f"[bold red]Dataset error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+        image_dir = ds_root / "images"
+        gt_dir = ds_root / "ground_truth"
+    elif image_dir is None or gt_dir is None:
+        console.print(
+            "[bold red]Error:[/bold red] Provide either --dataset <name> "
+            "or both image_dir and gt_dir positional arguments."
+        )
+        raise typer.Exit(1)
 
     params = _serializable_params(
         image_dir=image_dir,
@@ -1051,18 +1173,29 @@ def demo(
     n_images: int = typer.Option(
         10,
         "--n-images",
-        help="Number of synthetic images to generate",
+        help="Number of synthetic images to generate (ignored when --dataset is used)",
     ),
     no_browser: bool = typer.Option(
         False,
         "--no-browser",
         help="Skip opening the report in a browser when done",
     ),
+    dataset: str | None = typer.Option(
+        None,
+        "--dataset",
+        help="Use a registered dataset instead of generating synthetic images (e.g. dsb2018).",
+    ),
+    dataset_cache: Path | None = typer.Option(
+        None,
+        "--dataset-cache",
+        help="Cache directory for --dataset (default: ~/.cache/microagent/datasets/)",
+    ),
 ) -> None:
     """Generate synthetic data and run the full pipeline as a demo.
 
     Produces a self-contained HTML report without any real data or GPU.
     Target runtime: < 60 seconds on a machine with GPU, longer on CPU-only.
+    Pass --dataset dsb2018 (or another registered name) to run on real annotated data.
     """
     from microagent.core.evaluate import evaluate_masks
     from microagent.core.inspect import inspect_directory
@@ -1075,22 +1208,39 @@ def demo(
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. Generate synthetic dataset ─────────────────────────────────────
-    console.print(Panel(
-        "[bold]MicroAgent Demo[/bold]\n"
-        f"Generating {n_images} synthetic fluorescence images → {output}",
-        border_style="blue",
-    ))
-    with console.status("[bold green]Generating synthetic microscopy data …"):
-        image_dir, gt_dir = generate_synthetic_dataset(
-            output,
-            n_images=n_images,
-            image_size=(512, 512),
-            n_objects_range=(5, 25),
-            noise_level=0.08,
-            seed=42,
-        )
-    console.print(f"[green]✓ {n_images} images → {image_dir}[/green]")
+    # ── 1. Dataset (real or synthetic) ────────────────────────────────────
+    if dataset is not None:
+        from microagent.data.datasets import fetch_dataset
+
+        try:
+            ds_root = fetch_dataset(dataset, cache_dir=dataset_cache)
+        except (ValueError, RuntimeError) as exc:
+            console.print(f"[bold red]Dataset error:[/bold red] {exc}")
+            raise typer.Exit(1) from None
+        image_dir = ds_root / "images"
+        _gt_candidate = ds_root / "ground_truth"
+        gt_dir: Path | None = _gt_candidate if _gt_candidate.exists() else None
+        console.print(Panel(
+            f"[bold]MicroAgent Demo[/bold]\n"
+            f"Using dataset {dataset!r} → {ds_root}",
+            border_style="blue",
+        ))
+    else:
+        console.print(Panel(
+            "[bold]MicroAgent Demo[/bold]\n"
+            f"Generating {n_images} synthetic fluorescence images → {output}",
+            border_style="blue",
+        ))
+        with console.status("[bold green]Generating synthetic microscopy data …"):
+            image_dir, gt_dir = generate_synthetic_dataset(
+                output,
+                n_images=n_images,
+                image_size=(512, 512),
+                n_objects_range=(5, 25),
+                noise_level=0.08,
+                seed=42,
+            )
+        console.print(f"[green]✓ {n_images} images → {image_dir}[/green]")
 
     project_yaml = output / "project.yaml"
 
@@ -1151,29 +1301,36 @@ def demo(
         console.print(f"[yellow]Overlay generation skipped: {exc}[/yellow]")
 
     # ── 5. Evaluate ───────────────────────────────────────────────────────
-    with console.status("[bold green]Evaluating segmentation quality …"):
-        ev = evaluate_masks(
-            pred_dir=masks_dir,
-            gt_dir=gt_dir,
-            thresholds=[0.5, 0.75, 0.9],
-            force_fallback=True,
+    ev = None
+    ev_json: Path | None = None
+    f1_05 = 0.0
+    if gt_dir is not None and gt_dir.exists():
+        with console.status("[bold green]Evaluating segmentation quality …"):
+            ev = evaluate_masks(
+                pred_dir=masks_dir,
+                gt_dir=gt_dir,
+                thresholds=[0.5, 0.75, 0.9],
+                force_fallback=True,
+            )
+        ev_json = output / "metrics.json"
+        ev.save_json(ev_json)
+        f1_05 = next(
+            (tm.f1 for tm in ev.summary.per_threshold if abs(tm.threshold - 0.5) < 1e-9),
+            0.0,
         )
-    ev_json = output / "metrics.json"
-    ev.save_json(ev_json)
-    f1_05 = next(
-        (tm.f1 for tm in ev.summary.per_threshold if abs(tm.threshold - 0.5) < 1e-9),
-        0.0,
-    )
-    console.print(
-        f"[green]✓ Evaluate:[/green] F1@0.5={f1_05:.3f}  "
-        f"Mean F1={ev.summary.mean_f1:.3f}  PQ={ev.summary.panoptic_quality:.3f}"
-    )
+        console.print(
+            f"[green]✓ Evaluate:[/green] F1@0.5={f1_05:.3f}  "
+            f"Mean F1={ev.summary.mean_f1:.3f}  PQ={ev.summary.panoptic_quality:.3f}"
+        )
+    else:
+        console.print("[dim]  ↳ no ground truth — evaluation skipped[/dim]")
 
     # ── 6. Generate metric plots ──────────────────────────────────────────
     plots_dir = output / "plots"
     plots_dir.mkdir(exist_ok=True)
     try:
-        plot_metrics_summary(ev, plots_dir / "metrics_summary.png")
+        if ev is not None:
+            plot_metrics_summary(ev, plots_dir / "metrics_summary.png")
         import tifffile as _tf
 
         mask_paths = sorted(masks_dir.glob("*_mask.tif"))
